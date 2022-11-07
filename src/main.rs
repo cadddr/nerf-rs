@@ -3,8 +3,8 @@
 //and using volume ren- dering techniques to composite these values into an image (c)
 
 use std;
-use rand::{random};
-use vecmath::{vec3_add, vec3_sub, vec3_normalized, vec3_cross, vec3_scale};
+use rand::random;
+use vecmath::{vec3_add, vec3_sub, vec3_normalized, vec3_dot, vec3_cross, vec3_len, vec3_scale};
 
 const HITHER: f32 = 0.05;
 const FOV: f32 = 3.14 / 4.;
@@ -42,7 +42,9 @@ fn sample_points_along_ray(from: [f32; 3], to: [f32; 3]) -> Vec<[f32; 3]> {
     let mut points: Vec<[f32; 3]> = Vec::new();
     for i in 0..NUM_SAMPLES {
         let t = random::<f32>() * T_FAR;
-        let point = vec3_add(from, vec3_scale(to, t));
+        let point = //vec3_add(from,
+        vec3_scale(to, t);
+        //);
         points.push(point)
     }
     return points;
@@ -87,4 +89,43 @@ fn main() {
     points.iter().for_each(|it| {
         println!("point {{ {:.2}, {:.2}, {:.2} }}", it[0], it[1], it[2]);
     });
+}
+
+#[test]
+fn ray_direction_within_fov() {
+    //TODO: align in FOV plane
+    let x = random::<f32>() * (WIDTH as f32);
+    let y = random::<f32>() * (HEIGHT as f32);
+    println!("{} {}", x, y);
+    let to = screen_space_to_world_space(x as f32, y as f32, WIDTH as f32, HEIGHT as f32);
+    println!("{:?}", to);
+    let angle = vec3_dot(to, AT);
+    println!("{} vs {}", angle, <f32>::cos(FOV/2.));
+
+    assert!(angle >= <f32>::cos(FOV/2.))
+}
+
+#[test]
+fn points_sample_lie_on_ray() {
+    let x = random::<f32>() * (WIDTH as f32);
+    let y = random::<f32>() * (HEIGHT as f32);
+    println!("{} {}", x, y);
+    let to = screen_space_to_world_space(x as f32, y as f32, WIDTH as f32, HEIGHT as f32);
+    println!("{:?}", to);
+    let points = sample_points_along_ray(FROM, to);
+
+    points.iter().for_each(|it| {
+        println!("point {{ {:.2}, {:.2}, {:.2} }}", it[0], it[1], it[2]);
+    });
+
+    points.iter().for_each(|&it| {
+        println!("^to {}", vec3_dot(vec3_normalized(it), to));
+    });
+
+    points.iter().for_each(|&it| {
+        println!("|-to| {}", vec3_len(vec3_sub(vec3_normalized(it), to)));
+    });
+
+
+    assert!(points.iter().all(|&p| vec3_len(vec3_sub(vec3_normalized(p), to)) < 1e-6));
 }
