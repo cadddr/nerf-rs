@@ -10,9 +10,12 @@ use rand::prelude::StdRng;
 use rand::{random, SeedableRng};
 use vecmath::{vec3_add, vec3_sub, vec3_normalized, vec3_dot, vec3_cross, vec3_len, vec3_scale};
 use dfdx::nn::{Linear, ReLU, Tanh, ResetParams, Module};
-use dfdx::tensor::{tensor, Tensor, Tensor1D, Tensor2D, TensorCreator};
-use dfdx::gradients::{CanUpdateWithGradients, GradientProvider, OwnedTape, Tape, UnusedTensors};
-//use dfdx::nn::{Linear, Module, ReLU, ResetParams};
+use dfdx::tensor::{tensor, Tensor, Tensor0D, Tensor1D, Tensor2D, TensorCreator};
+use dfdx::gradients::{Gradients, CanUpdateWithGradients, GradientProvider, OwnedTape, Tape, UnusedTensors};
+use dfdx::tensor_ops::{add, sub, backward};
+use dfdx::losses::{cross_entropy_with_logits_loss, mse_loss};
+use dfdx::optim::{Sgd, SgdConfig, Optimizer, Momentum};
+
 mod mlp;
 use mlp::Mlp;
 
@@ -44,7 +47,7 @@ fn screen_space_to_world_space(x: f32, y: f32, width: f32, height: f32) -> [f32;
     return to;
 }
 
-const NUM_SAMPLES: usize = 3;
+const NUM_SAMPLES: usize = 1;
 const RAY_PROB: f32 = 10./(512. * 512.);
 const T_FAR: f32 = 10.;
 
@@ -98,26 +101,50 @@ fn sample_points_along_view_directions() -> (Vec<[f32; 3]>, Vec<[f32; 3]>) {
 
 const BATCH_SIZE: usize = 32;
 
-fn predict_emittance_and_density(views: Vec<[f32; 3]>, points: Vec<[f32; 3]>) -> Vec<Tensor1D<4, OwnedTape>> {
-    // Rng for generating model's params
-    let mut rng = StdRng::seed_from_u64(0);
-    type MLP = (
-            //TODO: 8 layers 256 each
+type MLP = (
+        //TODO: 8 layers 256 each
 //    the MLP FΘ first processes the input 3D coordinate x with 8 fully-connected layers (using ReLU activations and 256 channels per layer)
 //    and outputs σ and a 256-dimensional feature vector.
 //    This feature vector is then concatenated with the camera ray’s viewing direction and passed to one additional fully-connected layer (using a ReLU activation and 128 channels)
 //    that output the view-dependent RGB color.
-        (Linear<3, 32>, ReLU),
-        (Linear<32, 32>, ReLU),
-        (Linear<32, 4>, Tanh),
-    );
+    (Linear<3, 32>, ReLU),
+    (Linear<32, 32>, ReLU),
+    (Linear<32, 4>, Tanh),
+);
+
+fn init_mlp() -> (MLP, Sgd<MLP>) {
+    // Rng for generating model's params
+    let mut rng = StdRng::seed_from_u64(0);
+
     let mut mlp: MLP = Default::default();
     mlp.reset_params(&mut rng);
 
+    // Use stochastic gradient descent (Sgd), with a learning rate of 1e-2, and 0.9 momentum.
+    let mut opt: Sgd<MLP> = Sgd::new(SgdConfig {
+        lr: 1e-2,
+        momentum: Some(Momentum::Classic(0.9)),
+        weight_decay: None,
+    });
+
+    return (mlp, opt)
+}
+
+fn step(model: &mut MLP, opt: &mut Sgd<MLP>, y: Tensor1D<4, OwnedTape>, y_true: Tensor1D<4>) {
+    // compute cross entropy loss
+    let loss: Tensor0D<OwnedTape> = cross_entropy_with_logits_loss(y, y_true);
+    println!("Loss={:?}", loss);
+    // call `backward()` to compute gradients. The tensor *must* have `OwnedTape`!
+    let gradients: Gradients = loss.backward();
+
+    // pass the gradients & the model into the optimizer's update method
+    opt.update(model, gradients);
+}
+
+fn predict_emittance_and_density(mlp: &MLP, views: &Vec<[f32; 3]>, points: &Vec<[f32; 3]>) -> Vec<Tensor1D<4, OwnedTape>> {
     let mut predictions: Vec<Tensor1D<4, OwnedTape>> = Vec::new();
     //TODO: also use view directions
     for point in points {
-        let x: Tensor1D<3> = tensor(point);
+        let x: Tensor1D<3> = tensor(*point);
         let y = mlp.forward(x.trace());
         predictions.push(y);
     }
@@ -145,13 +172,26 @@ fn accumulate_radiance(predictions: Vec<Tensor1D<4, OwnedTape>>) ->  Vec<Tensor1
     //where δi = ti+1 − ti is the distance between adjacent samples.
     let radiances: Vec<Tensor1D<3, OwnedTape>> = Vec::new(); //one per each ray
     //NUM_SAMPLES points for each ray are concatenated together
-    for r in (0..predictions.len()).step_by(NUM_SAMPLES) {
-        let samples = &predictions[r..r + NUM_SAMPLES];
-        let sample_distances = samples.iter();
+    //TODO: should be sample distances not predictions (rgba)
+    for r in (0..predictions.len()).step_by(1) {
+        //    for prediction in predictions {
+        //        let mut samples: Vec<Tensor1D<4, OwnedTape>> = Vec::new();  //predictions[r..r + NUM_SAMPLES].try_into().unwrap();
+        //        for i in (r..r + NUM_SAMPLES) {
+        //            samples.push(predictions[i]);
+        //        }
+        //        let sample_distances: Vec<Tensor0D<OwnedTape>> = Vec::new();//samples.iter().map(|&it| vec3_len(it)).collect::<Vec<f32>>();;
+        //        for i in (0..samples.len() - 1) {
+        //            let dist = sub(samples[i + 1], samples[i]);
+        //        }
+        sub(predictions[r].with_empty_tape(), predictions[r+1].with_empty_tape());
     }
+
+
 
     return radiances;
 }
+
+const NUM_EPOCHS: usize = 5;
 
 fn main() {
     let (views, points) = sample_points_along_view_directions();
@@ -164,11 +204,22 @@ fn main() {
         println!("point {{ {:.2}, {:.2}, {:.2} }}", it[0], it[1], it[2]);
     });
 
-    let predictions = predict_emittance_and_density(views, points);
+    let (mut mlp, mut opt): (MLP, Sgd<MLP>) = init_mlp();
 
-    predictions.iter().for_each(|it| {
-        println!("{:?}", it);
-    });
+
+
+    for epoch in 0..NUM_EPOCHS {
+        println!("----------------- EPOCH {} --------------------", epoch);
+        let predictions = predict_emittance_and_density(&mlp, &views, &points);
+
+        predictions.iter().for_each(|it| {
+            println!("prediction {:?}", it);
+        });
+        for prediction in predictions {
+            step(&mut mlp, &mut opt, prediction, tensor([1., 0., 0., 0.,]));
+        }
+    }
+
 }
 
 #[test]
