@@ -6,6 +6,7 @@
 
 use std;
 use std::convert::TryInto;
+use load_image::ImageData;
 use rand::prelude::StdRng;
 use rand::{random, SeedableRng};
 use vecmath::{vec3_add, vec3_sub, vec3_normalized, vec3_dot, vec3_cross, vec3_len, vec3_scale};
@@ -80,9 +81,10 @@ fn sample_points_along_ray(from: [f32; 3], to: [f32; 3]) -> Vec<[f32; 3]> {
 const WIDTH: usize = 512;
 const HEIGHT: usize = 512;
 
-fn sample_points_along_view_directions() -> (Vec<[f32; 3]>, Vec<[f32; 3]>) {
+fn sample_points_along_view_directions() -> (Vec<(usize, usize)>, Vec<[f32; 3]>, Vec<[f32; 3]>) {
     //returns xyz th, phi
     //TODO: returning view vectors rather than angles
+    let mut indices: Vec<(usize, usize)> = Vec::new();
     let mut views: Vec<[f32; 3]> = Vec::new();
     let mut points: Vec<[f32; 3]> = Vec::new();
 
@@ -91,12 +93,13 @@ fn sample_points_along_view_directions() -> (Vec<[f32; 3]>, Vec<[f32; 3]>) {
             if random::<f32>() <= RAY_PROB {
                 //TODO: rewrite as vectorized
                 let to = screen_space_to_world_space(x as f32, y as f32, WIDTH as f32, HEIGHT as f32);
+                indices.push((y, x));
                 views.push(to);
                 points.append(&mut sample_points_along_ray(FROM, to));
             }
         }
     }
-    return (views, points);
+    return (indices, views, points);
 }
 
 const BATCH_SIZE: usize = 32;
@@ -131,7 +134,7 @@ fn init_mlp() -> (MLP, Sgd<MLP>) {
 
 fn step(model: &mut MLP, opt: &mut Sgd<MLP>, y: Tensor1D<4, OwnedTape>, y_true: Tensor1D<4>) {
     // compute cross entropy loss
-    let loss: Tensor0D<OwnedTape> = cross_entropy_with_logits_loss(y, y_true);
+    let loss: Tensor0D<OwnedTape> = mse_loss(y, y_true);
     println!("Loss={:?}", loss);
     // call `backward()` to compute gradients. The tensor *must* have `OwnedTape`!
     let gradients: Gradients = loss.backward();
@@ -193,8 +196,24 @@ fn accumulate_radiance(predictions: Vec<Tensor1D<4, OwnedTape>>) ->  Vec<Tensor1
 
 const NUM_EPOCHS: usize = 5;
 
+fn load_image_as_array(path: &str) -> Vec<[f32; 4]> {
+    let img = load_image::load_image(path, false).unwrap();
+    let mut pixels: Vec<[f32; 4]> = Vec::new();
+    if let ImageData::RGBA8(bitmap) = img.bitmap {
+        pixels = bitmap.iter().map(|rgba| [rgba.r as f32 / 255., rgba.g as f32 / 255., rgba.b as f32 / 255., rgba.a as f32 / 255.]).collect::<Vec<[f32; 4]>>();
+    }
+    return pixels;
+}
+
 fn main() {
-    let (views, points) = sample_points_along_view_directions();
+    let img = load_image_as_array("spheres/image-0.png");
+    println!("{:?}", img.len());
+
+    let (indices, views, points) = sample_points_along_view_directions();
+
+    indices.iter().for_each(|(y, x)| {
+        println!("pixel at {}, {}", y, x);
+    });
 
     views.iter().for_each(|it| {
         println!("vector {{ {:.2}, {:.2}, {:.2} }}", it[0], it[1], it[2]);
@@ -207,16 +226,17 @@ fn main() {
     let (mut mlp, mut opt): (MLP, Sgd<MLP>) = init_mlp();
 
 
-
     for epoch in 0..NUM_EPOCHS {
         println!("----------------- EPOCH {} --------------------", epoch);
         let predictions = predict_emittance_and_density(&mlp, &views, &points);
 
-        predictions.iter().for_each(|it| {
-            println!("prediction {:?}", it);
-        });
-        for prediction in predictions {
-            step(&mut mlp, &mut opt, prediction, tensor([1., 0., 0., 0.,]));
+//        predictions.iter().for_each(|it| {
+//            println!("prediction {:?}", it);
+//        });
+        for ((y, x), prediction) in indices.iter().zip(predictions.into_iter()) {
+            let gold = img[y * 512 + x];
+//            println!("gold {:?}", gold);
+            step(&mut mlp, &mut opt, prediction, tensor(gold));
         }
     }
 
