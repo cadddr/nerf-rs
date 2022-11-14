@@ -4,6 +4,10 @@
 //and using volume ren- dering techniques to composite these values into an image (c
 //TODO: curious how it would do without relying on volume rendering approximation and density
 
+
+extern crate minifb;
+use minifb::{Key, Window, WindowOptions};
+
 use std;
 use std::convert::TryInto;
 use load_image::ImageData;
@@ -12,6 +16,7 @@ use rand::{random, SeedableRng};
 use vecmath::{vec3_add, vec3_sub, vec3_normalized, vec3_dot, vec3_cross, vec3_len, vec3_scale};
 use dfdx::nn::{Linear, ReLU, Tanh, ResetParams, Module};
 use dfdx::tensor::{tensor, Tensor, Tensor0D, Tensor1D, Tensor2D, TensorCreator};
+use dfdx::arrays::HasArrayData;
 use dfdx::gradients::{Gradients, CanUpdateWithGradients, GradientProvider, OwnedTape, Tape, UnusedTensors};
 use dfdx::tensor_ops::{add, sub, backward};
 use dfdx::losses::{cross_entropy_with_logits_loss, mse_loss};
@@ -49,7 +54,7 @@ fn screen_space_to_world_space(x: f32, y: f32, width: f32, height: f32) -> [f32;
 }
 
 const NUM_SAMPLES: usize = 1;
-const RAY_PROB: f32 = 10./(512. * 512.);
+const RAY_PROB: f32 = 64. /(512. * 512.);
 const T_FAR: f32 = 10.;
 
 fn sample_points_along_ray(from: [f32; 3], to: [f32; 3]) -> Vec<[f32; 3]> {
@@ -65,15 +70,7 @@ fn sample_points_along_ray(from: [f32; 3], to: [f32; 3]) -> Vec<[f32; 3]> {
     }
 
     let mut both = points.into_iter().zip(locations.into_iter()).collect::<Vec<([f32; 3], f32)>>();
-    both.iter().for_each(|it| {
-        println!("unsorted {:?}", it);
-    });
-
     both.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-    both.iter().for_each(|it| {
-        println!("sorted {:?}", it);
-    });
-
     points = both.iter().map(|a| a.0).collect::<Vec<[f32; 3]>>();
     return points;
 }
@@ -132,15 +129,16 @@ fn init_mlp() -> (MLP, Sgd<MLP>) {
     return (mlp, opt)
 }
 
-fn step(model: &mut MLP, opt: &mut Sgd<MLP>, y: Tensor1D<4, OwnedTape>, y_true: Tensor1D<4>) {
+fn step(model: &mut MLP, opt: &mut Sgd<MLP>, y: Tensor1D<4, OwnedTape>, y_true: Tensor1D<4>) -> f32 {
     // compute cross entropy loss
     let loss: Tensor0D<OwnedTape> = mse_loss(y, y_true);
-    println!("Loss={:?}", loss);
+    let loss_data: f32 = loss.data().clone();
     // call `backward()` to compute gradients. The tensor *must* have `OwnedTape`!
     let gradients: Gradients = loss.backward();
-
     // pass the gradients & the model into the optimizer's update method
     opt.update(model, gradients);
+
+    return loss_data;
 }
 
 fn predict_emittance_and_density(mlp: &MLP, views: &Vec<[f32; 3]>, points: &Vec<[f32; 3]>) -> Vec<Tensor1D<4, OwnedTape>> {
@@ -205,42 +203,69 @@ fn load_image_as_array(path: &str) -> Vec<[f32; 4]> {
     return pixels;
 }
 
+fn run_window<F: FnMut(&mut Vec<u32>)>(mut update_window_buffer: F) {
+    let mut window = Window::new("Test - ESC to exit", WIDTH, HEIGHT, WindowOptions::default()).unwrap();
+    window.limit_update_rate(Some(std::time::Duration::from_micros(16600)));
+
+    while window.is_open() && !window.is_key_down(Key::Escape) {
+        let mut buffer: Vec<u32> = vec![0; WIDTH * HEIGHT];
+        update_window_buffer(&mut buffer);
+        window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
+    }
+}
+
 fn main() {
     let img = load_image_as_array("spheres/image-0.png");
-    println!("{:?}", img.len());
-
-    let (indices, views, points) = sample_points_along_view_directions();
-
-    indices.iter().for_each(|(y, x)| {
-        println!("pixel at {}, {}", y, x);
-    });
-
-    views.iter().for_each(|it| {
-        println!("vector {{ {:.2}, {:.2}, {:.2} }}", it[0], it[1], it[2]);
-    });
-
-    points.iter().for_each(|it| {
-        println!("point {{ {:.2}, {:.2}, {:.2} }}", it[0], it[1], it[2]);
-    });
+    println!("image {:?}", img.len());
 
     let (mut mlp, mut opt): (MLP, Sgd<MLP>) = init_mlp();
 
+    let mut update_window_buffer = |buffer: &mut Vec<u32>| {
+        let (indices, views, points) = sample_points_along_view_directions();
 
-    for epoch in 0..NUM_EPOCHS {
-        println!("----------------- EPOCH {} --------------------", epoch);
+//        indices.iter().for_each(|(y, x)| {
+//            println!("pixel at {}, {}", y, x);
+//        });
+//
+//        views.iter().for_each(|it| {
+//            println!("vector {{ {:.2}, {:.2}, {:.2} }}", it[0], it[1], it[2]);
+//        });
+//
+//        points.iter().for_each(|it| {
+//            println!("point {{ {:.2}, {:.2}, {:.2} }}", it[0], it[1], it[2]);
+//        });
+
+        //        for epoch in 0..NUM_EPOCHS {
+        //        println!("----------------- EPOCH {} --------------------", epoch);
         let predictions = predict_emittance_and_density(&mlp, &views, &points);
 
-//        predictions.iter().for_each(|it| {
-//            println!("prediction {:?}", it);
-//        });
+//                predictions.iter().for_each(|it| {
+//                    println!("prediction {:?}", it);
+//                });
         for ((y, x), prediction) in indices.iter().zip(predictions.into_iter()) {
-            let gold = img[y * 512 + x];
-//            println!("gold {:?}", gold);
-            step(&mut mlp, &mut opt, prediction, tensor(gold));
-        }
-    }
+            print!("pixel {}, {} ", y, x);
+            let gold = img[y * WIDTH + x];
+            print!("gold {{{:.2} {:.2} {:.2} {:.2}}} vs ", gold[0], gold[1], gold[2], gold[3]);
+            print!("pred {{{:.2} {:.2} {:.2} {:.2}}}", prediction.data()[0], prediction.data()[1], prediction.data()[2], prediction.data()[3]);
+            buffer[y * WIDTH + x] = prediction_as_u32(&prediction);
+            let loss: f32 = step(&mut mlp, &mut opt, prediction, tensor(gold));
+            println!("loss={:.4}", loss);
 
+        }
+    };
+    run_window(update_window_buffer);
 }
+
+fn prediction_as_u32(prediction: &Tensor1D<4, OwnedTape>) -> u32 {
+    let rgba: &[f32; 4] = prediction.data();
+    return from_u8_rgb((rgba[0] * 255.) as u8, (rgba[1] * 255.) as u8, (rgba[2] * 255.) as u8)
+}
+
+fn from_u8_rgb(r: u8, g: u8, b: u8) -> u32 {
+    let (r, g, b) = (r as u32, g as u32, b as u32);
+    (r << 16) | (g << 8) | b
+}
+
 
 #[test]
 fn ray_direction_within_fov() {
