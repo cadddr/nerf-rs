@@ -58,7 +58,7 @@ fn screen_space_to_world_space(x: f32, y: f32, width: f32, height: f32) -> [f32;
 }
 
 const NUM_SAMPLES: usize = 1;
-const RAY_PROB: f32 = 512. /(512. * 512.);
+const RAY_PROB: f32 = 1. /(512. * 512.);
 const T_FAR: f32 = 10.;
 
 fn sample_points_along_ray(from: [f32; 3], to: [f32; 3]) -> Vec<[f32; 3]> {
@@ -128,7 +128,7 @@ fn init_mlp() -> (MLP, Sgd<MLP>) {
 
     // Use stochastic gradient descent (Sgd), with a learning rate of 1e-2, and 0.9 momentum.
     let mut opt: Sgd<MLP> = Sgd::new(SgdConfig {
-        lr: 1e-4,
+        lr: 1e-2,
         momentum: Some(Momentum::Classic(0.9)),
         weight_decay: None,
     });
@@ -138,7 +138,7 @@ fn init_mlp() -> (MLP, Sgd<MLP>) {
 
 fn step(model: &mut MLP, opt: &mut Sgd<MLP>, y: Tensor1D<4, OwnedTape>, y_true: Tensor1D<4>) -> f32 {
     // compute cross entropy loss
-    let loss: Tensor0D<OwnedTape> = binary_cross_entropy_with_logits_loss (y, y_true);
+    let loss: Tensor0D<OwnedTape> = mse_loss (y, y_true);
     let loss_data: f32 = loss.data().clone();
     // call `backward()` to compute gradients. The tensor *must* have `OwnedTape`!
     let gradients: Gradients = loss.backward();
@@ -226,10 +226,10 @@ fn main() {
     println!("image {:?}", img.len());
 
     let (mut mlp, mut opt): (MLP, Sgd<MLP>) = init_mlp();
+    let (indices, views, points) = sample_points_along_view_directions();
 
-    let mut update_window_buffer = |buffer: &mut Vec<u32>| {
-        let (indices, views, points) = sample_points_along_view_directions();
-
+//    let mut update_window_buffer = |buffer: &mut Vec<u32>| {
+    for i in 0..1000  {
         let predictions = predict_emittance_and_density(&mlp, &views, &points);
 
         for ((y, x), prediction) in indices.iter().zip(predictions.into_iter()) {
@@ -237,13 +237,13 @@ fn main() {
             let gold = img[y * WIDTH + x];
             print!("gold {{{:.2} {:.2} {:.2} {:.2}}} vs ", gold[0], gold[1], gold[2], gold[3]);
             print!("pred {{{:.2} {:.2} {:.2} {:.2}}} ", prediction.data()[0], prediction.data()[1], prediction.data()[2], prediction.data()[3]);
-            buffer[y * WIDTH + x] = prediction_as_u32(&prediction);
+            //            buffer[y * WIDTH + x] = prediction_as_u32(&prediction);
             let loss: f32 = step(&mut mlp, &mut opt, prediction, tensor(gold));
             println!("loss={:.4}", loss);
-
         }
-    };
-    run_window(update_window_buffer);
+        }
+//    };
+//    run_window(update_window_buffer);
 }
 
 fn prediction_as_u32(prediction: &Tensor1D<4, OwnedTape>) -> u32 {
@@ -314,5 +314,21 @@ fn points_sampled_ordered_by_t() {
 
     let locations = points.iter().map(|&it| vec3_len(it)).collect::<Vec<f32>>();
     assert!((0..locations.len() - 1).all(|i| locations[i] <= locations[i + 1]));
+}
+
+fn main_image_displayed_correctly() {
+    let img = load_image_as_array("spheres/image-0.png");
+    println!("image {:?}", img.len());
+
+    let mut update_window_buffer = |buffer: &mut Vec<u32>| {
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                let gold = img[y * WIDTH + x];
+                buffer[y * WIDTH + x] = from_u8_rgb((gold[0] * 255.) as u8, (gold[1]*255.) as u8, (gold[2]*255.) as u8);
+            }
+        }
+    };
+
+    run_window(update_window_buffer);
 }
 
