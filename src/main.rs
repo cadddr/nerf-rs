@@ -1,6 +1,10 @@
 //We synthesize images by sampling 5D coordinates (location and viewing direction) along camera rays (a),
 //feeding those locations into an MLP to produce a color and volume density (b),
-//  We encourage the representation to be multiview consistent by restricting the network to predict the volume density σ as a function of only the location x, while allowing the RGB color c to be predicted as a function of both location and viewing direction. To accomplish this, the MLP FΘ first processes the input 3D coordinate x with 8 fully-connected layers (using ReLU activations and 256 channels per layer), and outputs σ and a 256-dimensional feature vector. This feature vector is then concatenated with the camera ray’s viewing direction and passed to one additional fully-connected layer (using a ReLU activation and 128 channels) that output the view-dependent RGB color.
+//  We encourage the representation to be multiview consistent by restricting the network to predict the volume density σ as a function of only the location x,
+//  while allowing the RGB color c to be predicted as a function of both location and viewing direction.
+//  To accomplish this, the MLP FΘ first processes the input 3D coordinate x with 8 fully-connected layers (using ReLU activations and 256 channels per layer),
+//  and outputs σ and a 256-dimensional feature vector. This feature vector is then concatenated with the camera ray’s viewing direction and passed to one additional
+//  fully-connected layer (using a ReLU activation and 128 channels) that output the view-dependent RGB color.
 //and using volume ren- dering techniques to composite these values into an image (c
 //TODO: curious how it would do without relying on volume rendering approximation and density
 
@@ -14,12 +18,12 @@ use load_image::ImageData;
 use rand::prelude::StdRng;
 use rand::{random, SeedableRng};
 use vecmath::{vec3_add, vec3_sub, vec3_normalized, vec3_dot, vec3_cross, vec3_len, vec3_scale};
-use dfdx::nn::{Linear, ReLU, Tanh, ResetParams, Module};
+use dfdx::nn::{Linear, ReLU, Tanh, Sigmoid, ResetParams, Module};
 use dfdx::tensor::{tensor, Tensor, Tensor0D, Tensor1D, Tensor2D, TensorCreator};
 use dfdx::arrays::HasArrayData;
 use dfdx::gradients::{Gradients, CanUpdateWithGradients, GradientProvider, OwnedTape, Tape, UnusedTensors};
 use dfdx::tensor_ops::{add, sub, backward};
-use dfdx::losses::{cross_entropy_with_logits_loss, mse_loss};
+use dfdx::losses::{cross_entropy_with_logits_loss, mse_loss, binary_cross_entropy_with_logits_loss};
 use dfdx::optim::{Sgd, SgdConfig, Optimizer, Momentum};
 
 mod mlp;
@@ -54,7 +58,7 @@ fn screen_space_to_world_space(x: f32, y: f32, width: f32, height: f32) -> [f32;
 }
 
 const NUM_SAMPLES: usize = 1;
-const RAY_PROB: f32 = 64. /(512. * 512.);
+const RAY_PROB: f32 = 512. /(512. * 512.);
 const T_FAR: f32 = 10.;
 
 fn sample_points_along_ray(from: [f32; 3], to: [f32; 3]) -> Vec<[f32; 3]> {
@@ -109,7 +113,10 @@ type MLP = (
 //    that output the view-dependent RGB color.
     (Linear<3, 32>, ReLU),
     (Linear<32, 32>, ReLU),
-    (Linear<32, 4>, Tanh),
+(Linear<32, 32>, ReLU),
+(Linear<32, 32>, ReLU),
+(Linear<32, 32>, ReLU),
+    (Linear<32, 4>, Sigmoid),
 );
 
 fn init_mlp() -> (MLP, Sgd<MLP>) {
@@ -121,7 +128,7 @@ fn init_mlp() -> (MLP, Sgd<MLP>) {
 
     // Use stochastic gradient descent (Sgd), with a learning rate of 1e-2, and 0.9 momentum.
     let mut opt: Sgd<MLP> = Sgd::new(SgdConfig {
-        lr: 1e-2,
+        lr: 1e-4,
         momentum: Some(Momentum::Classic(0.9)),
         weight_decay: None,
     });
@@ -131,7 +138,7 @@ fn init_mlp() -> (MLP, Sgd<MLP>) {
 
 fn step(model: &mut MLP, opt: &mut Sgd<MLP>, y: Tensor1D<4, OwnedTape>, y_true: Tensor1D<4>) -> f32 {
     // compute cross entropy loss
-    let loss: Tensor0D<OwnedTape> = mse_loss(y, y_true);
+    let loss: Tensor0D<OwnedTape> = binary_cross_entropy_with_logits_loss (y, y_true);
     let loss_data: f32 = loss.data().clone();
     // call `backward()` to compute gradients. The tensor *must* have `OwnedTape`!
     let gradients: Gradients = loss.backward();
@@ -223,30 +230,13 @@ fn main() {
     let mut update_window_buffer = |buffer: &mut Vec<u32>| {
         let (indices, views, points) = sample_points_along_view_directions();
 
-//        indices.iter().for_each(|(y, x)| {
-//            println!("pixel at {}, {}", y, x);
-//        });
-//
-//        views.iter().for_each(|it| {
-//            println!("vector {{ {:.2}, {:.2}, {:.2} }}", it[0], it[1], it[2]);
-//        });
-//
-//        points.iter().for_each(|it| {
-//            println!("point {{ {:.2}, {:.2}, {:.2} }}", it[0], it[1], it[2]);
-//        });
-
-        //        for epoch in 0..NUM_EPOCHS {
-        //        println!("----------------- EPOCH {} --------------------", epoch);
         let predictions = predict_emittance_and_density(&mlp, &views, &points);
 
-//                predictions.iter().for_each(|it| {
-//                    println!("prediction {:?}", it);
-//                });
         for ((y, x), prediction) in indices.iter().zip(predictions.into_iter()) {
             print!("pixel {}, {} ", y, x);
             let gold = img[y * WIDTH + x];
             print!("gold {{{:.2} {:.2} {:.2} {:.2}}} vs ", gold[0], gold[1], gold[2], gold[3]);
-            print!("pred {{{:.2} {:.2} {:.2} {:.2}}}", prediction.data()[0], prediction.data()[1], prediction.data()[2], prediction.data()[3]);
+            print!("pred {{{:.2} {:.2} {:.2} {:.2}}} ", prediction.data()[0], prediction.data()[1], prediction.data()[2], prediction.data()[3]);
             buffer[y * WIDTH + x] = prediction_as_u32(&prediction);
             let loss: f32 = step(&mut mlp, &mut opt, prediction, tensor(gold));
             println!("loss={:.4}", loss);
