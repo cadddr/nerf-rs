@@ -42,8 +42,9 @@ pub fn init_mlp() -> (MLP, Sgd<MLP>) {
     return (mlp, opt)
 }
 
-pub fn step(model: &mut MLP, opt: &mut Sgd<MLP>, y: Tensor1D<4, OwnedTape>, y_true: Tensor1D<4>) -> f32 {
+pub fn step(model: &mut MLP, opt: &mut Sgd<MLP>, y: Tensor2D<BATCH_SIZE, 4, OwnedTape>, gold: Vec<[f32; 4]>) -> f32 {
     // compute cross entropy loss
+    let y_true: Tensor2D<BATCH_SIZE, 4> = tensor(array_vec_to_2d_array(gold));
     let loss: Tensor0D<OwnedTape> = mse_loss (y, y_true);
     let loss_data: f32 = loss.data().clone();
     // call `backward()` to compute gradients. The tensor *must* have `OwnedTape`!
@@ -54,14 +55,31 @@ pub fn step(model: &mut MLP, opt: &mut Sgd<MLP>, y: Tensor1D<4, OwnedTape>, y_tr
     return loss_data;
 }
 
-pub fn predict_emittance_and_density(mlp: &MLP, views: &Vec<[f32; 3]>, points: &Vec<[f32; 3]>) -> Vec<Tensor1D<4, OwnedTape>> {
-    let mut predictions: Vec<Tensor1D<4, OwnedTape>> = Vec::new();
-    //TODO: also use view directions
-    for point in points {
-        let x: Tensor1D<3> = tensor(*point);
-        let y = mlp.forward(x.trace());
-        predictions.push(y);
+use std::convert::TryInto;
+
+fn array_vec_to_2d_array<T>(v: Vec<T>) -> [T; BATCH_SIZE] {
+    v.try_into().unwrap_or_else(|v: Vec<T>| panic!("Expected a Vec of length {} but it was {}", BATCH_SIZE, v.len()))
+}
+
+#[test]
+fn test_array_vec_to_2d_array() {
+    let mut v: Vec<[f32; 3]> = Vec::new();
+    for i in 0..BATCH_SIZE {
+        v.push([1.,2.,3.]);
     }
+    println!("{:?}", array_vec_to_2d_array(v));
+}
+
+pub fn predict_emittance_and_density(mlp: &MLP, views: Vec<[f32; 3]>, points: &Vec<[f32; 3]>) -> Tensor2D<BATCH_SIZE, 4, OwnedTape> {
+//    let mut predictions: Vec<Tensor1D<4, OwnedTape>> = Vec::new();
+    //TODO: also use view directions
+//    for point in views {
+//        let x: Tensor1D<3> = tensor(*point);
+//        let y = mlp.forward(x.trace());
+//        predictions.push(y);
+//    }
+    let x: Tensor2D<BATCH_SIZE, 3> = tensor(array_vec_to_2d_array(views));
+    let mut predictions: Tensor2D<BATCH_SIZE, 4, OwnedTape> = mlp.forward(x.trace());
 
     return predictions;
 
@@ -112,5 +130,8 @@ pub fn from_u8_rgb(r: u8, g: u8, b: u8) -> u32 {
 
 pub fn prediction_as_u32(prediction: &Tensor1D<4, OwnedTape>) -> u32 {
     let rgba: &[f32; 4] = prediction.data();
+    return from_u8_rgb((rgba[0] * 255.) as u8, (rgba[1] * 255.) as u8, (rgba[2] * 255.) as u8)
+}
+pub fn prediction_array_as_u32(rgba: &[f32; 4]) -> u32 {
     return from_u8_rgb((rgba[0] * 255.) as u8, (rgba[1] * 255.) as u8, (rgba[2] * 255.) as u8)
 }
