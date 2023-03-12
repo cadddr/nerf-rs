@@ -3,13 +3,14 @@ use rand::{SeedableRng};
 
 use dfdx::nn::{Linear, ReLU, Tanh, Sigmoid, ResetParams, Module};
 pub use dfdx::tensor::{tensor, Tensor, Tensor0D, Tensor1D, Tensor2D, TensorCreator};
+use dfdx::devices::{HasDevice, Cpu};
 pub use dfdx::arrays::HasArrayData;
 use dfdx::gradients::{Gradients, CanUpdateWithGradients, GradientProvider, OwnedTape, Tape, UnusedTensors};
 use dfdx::tensor_ops::{add, sub, backward};
 use dfdx::losses::{cross_entropy_with_logits_loss, mse_loss, binary_cross_entropy_with_logits_loss};
 pub use dfdx::optim::{Sgd, SgdConfig, Optimizer, Momentum};
 
-const BATCH_SIZE: usize = 32;
+pub const BATCH_SIZE: usize = 64;
 
 pub type MLP = (
         //TODO: 8 layers 256 each
@@ -17,12 +18,14 @@ pub type MLP = (
 //    and outputs σ and a 256-dimensional feature vector.
 //    This feature vector is then concatenated with the camera ray’s viewing direction and passed to one additional fully-connected layer (using a ReLU activation and 128 channels)
 //    that output the view-dependent RGB color.
-    (Linear<3, 32>, ReLU),
-    (Linear<32, 32>, ReLU),
-(Linear<32, 32>, ReLU),
-(Linear<32, 32>, ReLU),
-(Linear<32, 32>, ReLU),
-    (Linear<32, 4>, Sigmoid),
+    (Linear<2, 32>, Tanh),
+    (Linear<32, 32>, Tanh),
+//(Linear<32, 32>, Tanh),
+//(Linear<32, 32>, Tanh),
+//(Linear<32, 32>, Tanh),
+    (Linear<32, 4>
+//    ,Sigmoid
+    ),
 );
 
 pub fn init_mlp() -> (MLP, Sgd<MLP>) {
@@ -44,7 +47,7 @@ pub fn init_mlp() -> (MLP, Sgd<MLP>) {
 
 pub fn step(model: &mut MLP, opt: &mut Sgd<MLP>, y: Tensor2D<BATCH_SIZE, 4, OwnedTape>, gold: Vec<[f32; 4]>) -> f32 {
     // compute cross entropy loss
-    let y_true: Tensor2D<BATCH_SIZE, 4> = tensor(array_vec_to_2d_array(gold));
+    let y_true: Tensor2D<BATCH_SIZE, 4> = tensor(array_vec_to_2d_array::<[f32; 4], BATCH_SIZE>(gold));
     let loss: Tensor0D<OwnedTape> = mse_loss (y, y_true);
     let loss_data: f32 = loss.data().clone();
     // call `backward()` to compute gradients. The tensor *must* have `OwnedTape`!
@@ -57,20 +60,20 @@ pub fn step(model: &mut MLP, opt: &mut Sgd<MLP>, y: Tensor2D<BATCH_SIZE, 4, Owne
 
 use std::convert::TryInto;
 
-fn array_vec_to_2d_array<T>(v: Vec<T>) -> [T; BATCH_SIZE] {
-    v.try_into().unwrap_or_else(|v: Vec<T>| panic!("Expected a Vec of length {} but it was {}", BATCH_SIZE, v.len()))
+fn array_vec_to_2d_array<T, const N:usize>(v: Vec<T>) -> [T; N] {
+    v.try_into().unwrap_or_else(|v: Vec<T>| panic!("Expected a Vec of length {} but it was {}", N, v.len()))
 }
 
 #[test]
 fn test_array_vec_to_2d_array() {
     let mut v: Vec<[f32; 3]> = Vec::new();
-    for i in 0..BATCH_SIZE {
+    for i in 0..3 {
         v.push([1.,2.,3.]);
     }
-    println!("{:?}", array_vec_to_2d_array(v));
+    println!("{:?}", array_vec_to_2d_array::<[f32; 3], 3>(v));
 }
 
-pub fn predict_emittance_and_density(mlp: &MLP, views: Vec<[f32; 3]>, points: &Vec<[f32; 3]>) -> Tensor2D<BATCH_SIZE, 4, OwnedTape> {
+pub fn predict_emittance_and_density(mlp: &MLP, indices: Vec<[usize; 2]>, views: Vec<[f32; 3]>, points: Vec<[f32; 3]>) -> Tensor2D<BATCH_SIZE, 4, OwnedTape> {
 //    let mut predictions: Vec<Tensor1D<4, OwnedTape>> = Vec::new();
     //TODO: also use view directions
 //    for point in views {
@@ -78,7 +81,9 @@ pub fn predict_emittance_and_density(mlp: &MLP, views: Vec<[f32; 3]>, points: &V
 //        let y = mlp.forward(x.trace());
 //        predictions.push(y);
 //    }
-    let x: Tensor2D<BATCH_SIZE, 3> = tensor(array_vec_to_2d_array(views));
+    let x: Tensor2D<BATCH_SIZE, 2> = tensor(array_vec_to_2d_array::<[f32; 2], BATCH_SIZE>(indices.iter().map(|&e| [e[0] as f32, e[1] as f32]).collect()));
+//    let x: Tensor2D<BATCH_SIZE, 3> = dev.stack(views.iter().map(|x| tensor(*x)));
+
     let mut predictions: Tensor2D<BATCH_SIZE, 4, OwnedTape> = mlp.forward(x.trace());
 
     return predictions;

@@ -31,16 +31,16 @@ fn main() {
     println!("image {:?} pixels", img.len());
 
     let (mut mlp, mut opt): (MLP, Sgd<MLP>) = init_mlp();
-
     let mut batch_losses: Vec<f32> = Vec::new();
+    let mut backbuffer = [0; WIDTH * HEIGHT];
     let mut update_window_buffer = |buffer: &mut Vec<u32>| {
-        let (indices, views, points) = ray_sampling::sample_points_along_view_directions();
-        let predictions = predict_emittance_and_density(&mlp, views[0..32].to_vec(), &points);
-        let gold: Vec<[f32; 4]> = indices.iter().map(|(y, x)| img[y * WIDTH + x]).collect();
+        let (indices, views, points) = ray_sampling::sample_points_along_view_directions();//model::BATCH_SIZE);
+        let predictions = predict_emittance_and_density(&mlp, indices[indices.len()-model::BATCH_SIZE..].to_vec(), views[views.len()-model::BATCH_SIZE..].to_vec(), points[points.len()-model::BATCH_SIZE..].to_vec());
+        let gold: Vec<[f32; 4]> = indices.iter().map(|[y, x]| img[y * WIDTH + x]).collect();
 
 //        let num_predictions = predictions.len();
 //        let mut losses: Vec<f32> = Vec::new();
-        for ((y, x), prediction) in indices.iter().zip(predictions.data().into_iter()) {
+        for ([y, x], prediction) in indices[indices.len()-model::BATCH_SIZE..].iter().zip(predictions.data().into_iter()) {
             let gold = img[y * WIDTH + x];
 //            if (num_predictions <= 10) {
 //                print!("pixel {}, {} ", y, x);
@@ -49,12 +49,18 @@ fn main() {
 //            }
 //
 ////            buffer[y * WIDTH + x] = from_u8_rgb((gold[0] * 255.) as u8, (gold[1] * 255.) as u8, (gold[2] * 255.) as u8);
-            buffer[y * WIDTH + x] = prediction_array_as_u32(prediction);
+            backbuffer[y * WIDTH + x] = prediction_array_as_u32(prediction);
 //
 //            let loss: f32 = step(&mut mlp, &mut opt, prediction, tensor(gold));
 //            losses.push(loss);
         }
-        let loss: f32 = step(&mut mlp, &mut opt, predictions, gold[0..32].to_vec());
+
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                buffer[y * WIDTH + x] = backbuffer[y * WIDTH + x];
+            }
+        }
+        let loss: f32 = step(&mut mlp, &mut opt, predictions, gold[gold.len()-model::BATCH_SIZE..].to_vec());
 
 //        let batch_loss = losses.iter().sum::<f32>() as f32 / losses.len() as f32;
         println!("avg loss={:.4}", loss);

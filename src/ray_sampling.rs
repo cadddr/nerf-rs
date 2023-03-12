@@ -54,10 +54,10 @@ fn sample_points_along_ray(from: [f32; 3], to: [f32; 3]) -> Vec<[f32; 3]> {
     return points;
 }
 
-pub fn sample_points_along_view_directions() -> (Vec<(usize, usize)>, Vec<[f32; 3]>, Vec<[f32; 3]>) {
+pub fn sample_points_along_view_directions() -> (Vec<[usize; 2]>, Vec<[f32; 3]>, Vec<[f32; 3]>) {
     //returns xyz th, phi
     //TODO: returning view vectors rather than angles
-    let mut indices: Vec<(usize, usize)> = Vec::new();
+    let mut indices: Vec<[usize; 2]> = Vec::new();
     let mut views: Vec<[f32; 3]> = Vec::new();
     let mut points: Vec<[f32; 3]> = Vec::new();
 
@@ -66,7 +66,7 @@ pub fn sample_points_along_view_directions() -> (Vec<(usize, usize)>, Vec<[f32; 
             if random::<f32>() <= RAY_PROB {
                 //TODO: rewrite as vectorized
                 let to = screen_space_to_world_space(x as f32, y as f32, WIDTH as f32, HEIGHT as f32);
-                indices.push((y, x));
+                indices.push([y, x]);
                 views.push(to);
                 points.append(&mut sample_points_along_ray(FROM, to));
             }
@@ -74,6 +74,26 @@ pub fn sample_points_along_view_directions() -> (Vec<(usize, usize)>, Vec<[f32; 
     }
     return (indices, views, points);
 }
+
+pub fn sample_points_batch_along_view_directions(batch_size: usize) -> (Vec<[usize; 2]>, Vec<[f32; 3]>, Vec<[f32; 3]>) {
+    //returns xyz th, phi
+    //TODO: returning view vectors rather than angles
+    let mut indices: Vec<[usize; 2]> = Vec::new();
+    let mut views: Vec<[f32; 3]> = Vec::new();
+    let mut points: Vec<[f32; 3]> = Vec::new();
+
+    for i in 0..batch_size {
+        let y: usize = random::<u8>() as usize + random::<u8>() as usize;
+        let x: usize = random::<u8>() as usize + random::<u8>() as usize;
+
+        let to = screen_space_to_world_space(x as f32, y as f32, WIDTH as f32, HEIGHT as f32);
+        indices.push([y as usize, x as usize]);
+        views.push(to);
+        points.append(&mut sample_points_along_ray(FROM, to));
+    }
+    return (indices, views, points);
+}
+
 
 #[test]
 fn ray_direction_within_fov() {
