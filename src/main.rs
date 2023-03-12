@@ -35,7 +35,11 @@ fn main() {
     let mut backbuffer = [0; WIDTH * HEIGHT];
     let mut update_window_buffer = |buffer: &mut Vec<u32>| {
         let (indices, views, points) = ray_sampling::sample_points_along_view_directions();//model::BATCH_SIZE);
-        let predictions = predict_emittance_and_density(&mlp, indices[indices.len()-model::BATCH_SIZE..].to_vec(), views[views.len()-model::BATCH_SIZE..].to_vec(), points[points.len()-model::BATCH_SIZE..].to_vec());
+        let predictions = predict_emittance_and_density(&mlp,
+            indices[indices.len()-model::BATCH_SIZE..].to_vec().iter().map(|&e| [e[0] as f32, e[1] as f32]).collect(),
+            views[views.len()-model::BATCH_SIZE..].to_vec(),
+            points[points.len()-model::BATCH_SIZE..].to_vec()
+        );
         let gold: Vec<[f32; 4]> = indices.iter().map(|[y, x]| img[y * WIDTH + x]).collect();
 
 //        let num_predictions = predictions.len();

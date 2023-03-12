@@ -18,14 +18,15 @@ pub type MLP = (
 //    and outputs σ and a 256-dimensional feature vector.
 //    This feature vector is then concatenated with the camera ray’s viewing direction and passed to one additional fully-connected layer (using a ReLU activation and 128 channels)
 //    that output the view-dependent RGB color.
-    (Linear<2, 32>, Tanh),
+    (Linear<3, 32>, Tanh),
     (Linear<32, 32>, Tanh),
-//(Linear<32, 32>, Tanh),
-//(Linear<32, 32>, Tanh),
-//(Linear<32, 32>, Tanh),
+    (Linear<32, 32>, Tanh),
+    (Linear<32, 32>, Tanh),
+    (Linear<32, 32>, Tanh),
     (Linear<32, 4>
 //    ,Sigmoid
-    ),
+//    , Tanh
+    )
 );
 
 pub fn init_mlp() -> (MLP, Sgd<MLP>) {
@@ -73,7 +74,7 @@ fn test_array_vec_to_2d_array() {
     println!("{:?}", array_vec_to_2d_array::<[f32; 3], 3>(v));
 }
 
-pub fn predict_emittance_and_density(mlp: &MLP, indices: Vec<[usize; 2]>, views: Vec<[f32; 3]>, points: Vec<[f32; 3]>) -> Tensor2D<BATCH_SIZE, 4, OwnedTape> {
+pub fn predict_emittance_and_density(mlp: &MLP, indices: Vec<[f32; 2]>, views: Vec<[f32; 3]>, points: Vec<[f32; 3]>) -> Tensor2D<BATCH_SIZE, 4, OwnedTape> {
 //    let mut predictions: Vec<Tensor1D<4, OwnedTape>> = Vec::new();
     //TODO: also use view directions
 //    for point in views {
@@ -81,7 +82,7 @@ pub fn predict_emittance_and_density(mlp: &MLP, indices: Vec<[usize; 2]>, views:
 //        let y = mlp.forward(x.trace());
 //        predictions.push(y);
 //    }
-    let x: Tensor2D<BATCH_SIZE, 2> = tensor(array_vec_to_2d_array::<[f32; 2], BATCH_SIZE>(indices.iter().map(|&e| [e[0] as f32, e[1] as f32]).collect()));
+    let x: Tensor2D<BATCH_SIZE, 3> = tensor(array_vec_to_2d_array::<[f32; 3], BATCH_SIZE>(views));
 //    let x: Tensor2D<BATCH_SIZE, 3> = dev.stack(views.iter().map(|x| tensor(*x)));
 
     let mut predictions: Tensor2D<BATCH_SIZE, 4, OwnedTape> = mlp.forward(x.trace());
