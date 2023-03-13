@@ -19,24 +19,28 @@ mod mlp;
 use mlp::Mlp;
 
 mod model;
-use model::{MLP, Sgd, init_mlp, predict_emittance_and_density, prediction_as_u32, prediction_array_as_u32, step, tensor, from_u8_rgb, HasArrayData};
+use model::{MLP, Sgd, Adam, init_mlp, predict_emittance_and_density, prediction_as_u32, prediction_array_as_u32, step, tensor, from_u8_rgb, HasArrayData};
 
 mod display;
 use display::run_window;
 
 use textplots::{Chart, Plot, Shape};
 
+
 fn main() {
-    let img = image_loading::load_image_as_array("spheres/image-0.png");
+    let img = image_loading::load_image_as_array("spheres/image-0-basic-128.png");
     println!("image {:?} pixels", img.len());
 
-    let (mut mlp, mut opt): (MLP, Sgd<MLP>) = init_mlp();
+    let (mut mlp, mut opt): (MLP, Adam<MLP>) = init_mlp();
     let mut batch_losses: Vec<f32> = Vec::new();
     let mut backbuffer = [0; WIDTH * HEIGHT];
     let mut update_window_buffer = |buffer: &mut Vec<u32>| {
-        let (indices, views, points) = ray_sampling::sample_points_along_view_directions();//model::BATCH_SIZE);
+//        let (indices, views, points) = ray_sampling::sample_points_batch_along_view_directions(model::BATCH_SIZE);
+        let (indices, views, points) = ray_sampling::sample_points_along_view_directions();
+        let screen_coords: Vec<[f32; 2]> = indices.iter().map(|&e| [e[0] as f32 / HEIGHT as f32 - 0.5, e[1] as f32 / WIDTH as f32 - 0.5]).collect();
+//        println!("{:?}", screen_coords);
         let predictions = predict_emittance_and_density(&mlp,
-            indices[indices.len()-model::BATCH_SIZE..].to_vec().iter().map(|&e| [e[0] as f32, e[1] as f32]).collect(),
+            screen_coords[screen_coords.len()-model::BATCH_SIZE..].to_vec(),
             views[views.len()-model::BATCH_SIZE..].to_vec(),
             points[points.len()-model::BATCH_SIZE..].to_vec()
         );
@@ -77,19 +81,19 @@ fn main() {
     run_window(update_window_buffer, WIDTH, HEIGHT);
 }
 
-//fn main() {
-//    let img = image_loading::load_image_as_array("spheres/image-0.png");
-//    println!("image {:?}", img.len());
-//
-//    let mut update_window_buffer = |buffer: &mut Vec<u32>| {
-//        for y in 0..HEIGHT {
-//            for x in 0..WIDTH {
-//                let gold = img[y * WIDTH + x];
-//                buffer[y * WIDTH + x] = from_u8_rgb((gold[0] * 255.) as u8, (gold[1]*255.) as u8, (gold[2]*255.) as u8);
-//            }
-//        }
-//    };
-//
-//    run_window(update_window_buffer, WIDTH, HEIGHT);
-//}
+fn _main() {
+    let img = image_loading::load_image_as_array("spheres/image-0-basic-128.png");
+    println!("image {:?}", img.len());
+
+    let mut update_window_buffer = |buffer: &mut Vec<u32>| {
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                let gold = img[y * WIDTH + x];
+                buffer[y * WIDTH + x] = from_u8_rgb((gold[0] * 255.) as u8, (gold[1]*255.) as u8, (gold[2]*255.) as u8);
+            }
+        }
+    };
+
+    run_window(update_window_buffer, WIDTH, HEIGHT);
+}
 

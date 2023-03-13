@@ -9,11 +9,11 @@ const FROM: [f32; 3] = [0., 0., -1.];
 const AT: [f32; 3] =   [0., 0.,  1.];
 
 const NUM_SAMPLES: usize = 1;
-const RAY_PROB: f32 = 100. /(512. * 512.);
+const RAY_PROB: f32 = 175. /(128. * 128.);
 const T_FAR: f32 = 10.;
 
-pub const WIDTH: usize = 512;
-pub const HEIGHT: usize = 512;
+pub const WIDTH: usize = 128;
+pub const HEIGHT: usize = 128;
 
 fn screen_space_to_world_space(x: f32, y: f32, width: f32, height: f32) -> [f32; 3] {
     let off: f32 = f32::tan(FOV / 2.) * HITHER;

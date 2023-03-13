@@ -8,9 +8,9 @@ pub use dfdx::arrays::HasArrayData;
 use dfdx::gradients::{Gradients, CanUpdateWithGradients, GradientProvider, OwnedTape, Tape, UnusedTensors};
 use dfdx::tensor_ops::{add, sub, backward};
 use dfdx::losses::{cross_entropy_with_logits_loss, mse_loss, binary_cross_entropy_with_logits_loss};
-pub use dfdx::optim::{Sgd, SgdConfig, Optimizer, Momentum};
+pub use dfdx::optim::{Sgd, SgdConfig, Optimizer, Momentum, Adam, AdamConfig, WeightDecay};
 
-pub const BATCH_SIZE: usize = 64;
+pub const BATCH_SIZE: usize = 128;
 
 pub type MLP = (
         //TODO: 8 layers 256 each
@@ -18,18 +18,18 @@ pub type MLP = (
 //    and outputs σ and a 256-dimensional feature vector.
 //    This feature vector is then concatenated with the camera ray’s viewing direction and passed to one additional fully-connected layer (using a ReLU activation and 128 channels)
 //    that output the view-dependent RGB color.
-    (Linear<3, 32>, Tanh),
-    (Linear<32, 32>, Tanh),
-    (Linear<32, 32>, Tanh),
-    (Linear<32, 32>, Tanh),
-    (Linear<32, 32>, Tanh),
-    (Linear<32, 4>
+    (Linear<2, 100>, Tanh),
+    (Linear<100, 100>, Tanh),
+    (Linear<100, 100>, Tanh),
+    (Linear<100, 100>, Tanh),
+    (Linear<100, 100>, Tanh),
+    (Linear<100, 4>
 //    ,Sigmoid
 //    , Tanh
     )
 );
 
-pub fn init_mlp() -> (MLP, Sgd<MLP>) {
+pub fn init_mlp() -> (MLP, Adam<MLP>) {
     // Rng for generating model's params
     let mut rng = StdRng::seed_from_u64(0);
 
@@ -37,16 +37,21 @@ pub fn init_mlp() -> (MLP, Sgd<MLP>) {
     mlp.reset_params(&mut rng);
 
     // Use stochastic gradient descent (Sgd), with a learning rate of 1e-2, and 0.9 momentum.
-    let mut opt: Sgd<MLP> = Sgd::new(SgdConfig {
-        lr: 2e-2,
-        momentum: Some(Momentum::Classic(0.9)),
-        weight_decay: None,
+    let mut opt: Adam<MLP> = Adam::new(AdamConfig {
+        lr: 1e-4,
+        betas: [0.5, 0.25],
+        eps: 1e-6,
+        weight_decay: Some(WeightDecay::Decoupled(1e-2)),
     });
+//        lr: 2e-3,
+////        momentum: Some(Momentum::Classic(0.9)),
+////        weight_decay: None,
+//    });
 
     return (mlp, opt)
 }
 
-pub fn step(model: &mut MLP, opt: &mut Sgd<MLP>, y: Tensor2D<BATCH_SIZE, 4, OwnedTape>, gold: Vec<[f32; 4]>) -> f32 {
+pub fn step(model: &mut MLP, opt: &mut Adam<MLP>, y: Tensor2D<BATCH_SIZE, 4, OwnedTape>, gold: Vec<[f32; 4]>) -> f32 {
     // compute cross entropy loss
     let y_true: Tensor2D<BATCH_SIZE, 4> = tensor(array_vec_to_2d_array::<[f32; 4], BATCH_SIZE>(gold));
     let loss: Tensor0D<OwnedTape> = mse_loss (y, y_true);
@@ -82,7 +87,8 @@ pub fn predict_emittance_and_density(mlp: &MLP, indices: Vec<[f32; 2]>, views: V
 //        let y = mlp.forward(x.trace());
 //        predictions.push(y);
 //    }
-    let x: Tensor2D<BATCH_SIZE, 3> = tensor(array_vec_to_2d_array::<[f32; 3], BATCH_SIZE>(views));
+//    let x: Tensor2D<BATCH_SIZE, 3> = tensor(array_vec_to_2d_array::<[f32; 3], BATCH_SIZE>(views));
+    let x: Tensor2D<BATCH_SIZE, 2> = tensor(array_vec_to_2d_array::<[f32; 2], BATCH_SIZE>(indices));
 //    let x: Tensor2D<BATCH_SIZE, 3> = dev.stack(views.iter().map(|x| tensor(*x)));
 
     let mut predictions: Tensor2D<BATCH_SIZE, 4, OwnedTape> = mlp.forward(x.trace());
