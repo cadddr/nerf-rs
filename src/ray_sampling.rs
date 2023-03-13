@@ -9,7 +9,7 @@ const FROM: [f32; 3] = [0., 0., -1.];
 const AT: [f32; 3] =   [0., 0.,  1.];
 
 const NUM_SAMPLES: usize = 1;
-const RAY_PROB: f32 = 175. /(128. * 128.);
+const RAY_PROB: f32 = 200. /(128. * 128.);
 const T_FAR: f32 = 10.;
 
 pub const WIDTH: usize = 128;
@@ -83,8 +83,8 @@ pub fn sample_points_batch_along_view_directions(batch_size: usize) -> (Vec<[usi
     let mut points: Vec<[f32; 3]> = Vec::new();
 
     for i in 0..batch_size {
-        let y: usize = random::<u8>() as usize + random::<u8>() as usize;
-        let x: usize = random::<u8>() as usize + random::<u8>() as usize;
+        let y: usize = (random::<f32>() * HEIGHT as f32) as usize;
+        let x: usize = (random::<f32>() * WIDTH as f32) as usize;
 
         let to = screen_space_to_world_space(x as f32, y as f32, WIDTH as f32, HEIGHT as f32);
         indices.push([y as usize, x as usize]);

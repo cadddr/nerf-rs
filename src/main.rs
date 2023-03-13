@@ -26,74 +26,61 @@ use display::run_window;
 
 use textplots::{Chart, Plot, Shape};
 
+const DEBUG: bool = false;
 
 fn main() {
     let img = image_loading::load_image_as_array("spheres/image-0-basic-128.png");
     println!("image {:?} pixels", img.len());
+    let mut backbuffer = [0; WIDTH * HEIGHT];
 
     let (mut mlp, mut opt): (MLP, Adam<MLP>) = init_mlp();
     let mut batch_losses: Vec<f32> = Vec::new();
-    let mut backbuffer = [0; WIDTH * HEIGHT];
-    let mut update_window_buffer = |buffer: &mut Vec<u32>| {
-//        let (indices, views, points) = ray_sampling::sample_points_batch_along_view_directions(model::BATCH_SIZE);
-        let (indices, views, points) = ray_sampling::sample_points_along_view_directions();
-        let screen_coords: Vec<[f32; 2]> = indices.iter().map(|&e| [e[0] as f32 / HEIGHT as f32 - 0.5, e[1] as f32 / WIDTH as f32 - 0.5]).collect();
-//        println!("{:?}", screen_coords);
-        let predictions = predict_emittance_and_density(&mlp,
-            screen_coords[screen_coords.len()-model::BATCH_SIZE..].to_vec(),
-            views[views.len()-model::BATCH_SIZE..].to_vec(),
-            points[points.len()-model::BATCH_SIZE..].to_vec()
-        );
-        let gold: Vec<[f32; 4]> = indices.iter().map(|[y, x]| img[y * WIDTH + x]).collect();
 
-//        let num_predictions = predictions.len();
-//        let mut losses: Vec<f32> = Vec::new();
-        for ([y, x], prediction) in indices[indices.len()-model::BATCH_SIZE..].iter().zip(predictions.data().into_iter()) {
-            let gold = img[y * WIDTH + x];
-//            if (num_predictions <= 10) {
-//                print!("pixel {}, {} ", y, x);
-//                print!("gold {{{:.2} {:.2} {:.2} {:.2}}} vs ", gold[0], gold[1], gold[2], gold[3]);
-//                println!("pred {{{:.2} {:.2} {:.2} {:.2}}} ", prediction.data()[0], prediction.data()[1], prediction.data()[2], prediction.data()[3]);
-//            }
-//
-////            buffer[y * WIDTH + x] = from_u8_rgb((gold[0] * 255.) as u8, (gold[1] * 255.) as u8, (gold[2] * 255.) as u8);
-            backbuffer[y * WIDTH + x] = prediction_array_as_u32(prediction);
-//
-//            let loss: f32 = step(&mut mlp, &mut opt, prediction, tensor(gold));
-//            losses.push(loss);
+    let mut update_window_buffer = |buffer: &mut Vec<u32>| {
+        if !DEBUG {
+            let (indices, views, points) = ray_sampling::sample_points_batch_along_view_directions(model::BATCH_SIZE);
+//            let (indices, views, points) = ray_sampling::sample_points_along_view_directions();
+            let screen_coords: Vec<[f32; 6]> = indices.iter().map(|&e| [e[0] as f32 / HEIGHT as f32, e[1] as f32 / WIDTH as f32]).map(|e| [
+                e[0],
+                e[1],
+                (1. - e[0]),
+                (1. - e[1]),
+                f32::sqrt((e[0] - 0.5) * (e[0] - 0.5) + (e[1] - 0.5) * (e[1] - 0.5)),
+                1./ (f32::tan((e[0] - 0.5) / (e[1] - 0.5 + 1e-6) + 1e-6))
+            ]).collect();
+            let gold: Vec<[f32; 4]> = indices.iter().map(|[y, x]| img[y * WIDTH + x]).collect();
+
+            let predictions = predict_emittance_and_density(&mlp, screen_coords, views, points);
+
+            for ([y, x], prediction) in indices[..model::BATCH_SIZE].iter().zip(predictions.data().into_iter()) {
+                backbuffer[y * WIDTH + x] = prediction_array_as_u32(prediction);
+            }
+
+            let loss: f32 = step(&mut mlp, &mut opt, predictions, gold[..model::BATCH_SIZE].to_vec());
+
+            println!("avg loss={:.4}", loss);
+            batch_losses.push(loss);
+            Chart::new(120, 40, 0., batch_losses.len() as f32)
+            .lineplot(&Shape::Continuous(Box::new(|x| batch_losses[x as usize])))
+            .display();
+
+            if (batch_losses.len() * model::BATCH_SIZE) % img.len() == 0 {
+                backbuffer = [0; WIDTH * HEIGHT];
+            }
         }
 
         for y in 0..HEIGHT {
             for x in 0..WIDTH {
-                buffer[y * WIDTH + x] = backbuffer[y * WIDTH + x];
+                if DEBUG {
+                    let gold = img[y * WIDTH + x];
+                    buffer[y * WIDTH + x] = from_u8_rgb((gold[0] * 255.) as u8, (gold[1]*255.) as u8, (gold[2]*255.) as u8);
+                }
+                else{
+                    buffer[y * WIDTH + x] = backbuffer[y * WIDTH + x];
+                }
             }
         }
-        let loss: f32 = step(&mut mlp, &mut opt, predictions, gold[gold.len()-model::BATCH_SIZE..].to_vec());
-
-//        let batch_loss = losses.iter().sum::<f32>() as f32 / losses.len() as f32;
-        println!("avg loss={:.4}", loss);
-        batch_losses.push(loss);
-        Chart::new(120, 40, 0., batch_losses.len() as f32)
-    .lineplot(&Shape::Continuous(Box::new(|x| batch_losses[x as usize])))
-    .display();
 
     };
     run_window(update_window_buffer, WIDTH, HEIGHT);
 }
-
-fn _main() {
-    let img = image_loading::load_image_as_array("spheres/image-0-basic-128.png");
-    println!("image {:?}", img.len());
-
-    let mut update_window_buffer = |buffer: &mut Vec<u32>| {
-        for y in 0..HEIGHT {
-            for x in 0..WIDTH {
-                let gold = img[y * WIDTH + x];
-                buffer[y * WIDTH + x] = from_u8_rgb((gold[0] * 255.) as u8, (gold[1]*255.) as u8, (gold[2]*255.) as u8);
-            }
-        }
-    };
-
-    run_window(update_window_buffer, WIDTH, HEIGHT);
-}
-

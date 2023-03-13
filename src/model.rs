@@ -18,7 +18,7 @@ pub type MLP = (
 //    and outputs σ and a 256-dimensional feature vector.
 //    This feature vector is then concatenated with the camera ray’s viewing direction and passed to one additional fully-connected layer (using a ReLU activation and 128 channels)
 //    that output the view-dependent RGB color.
-    (Linear<2, 100>, Tanh),
+    (Linear<6, 100>, Tanh),
     (Linear<100, 100>, Tanh),
     (Linear<100, 100>, Tanh),
     (Linear<100, 100>, Tanh),
@@ -36,17 +36,12 @@ pub fn init_mlp() -> (MLP, Adam<MLP>) {
     let mut mlp: MLP = Default::default();
     mlp.reset_params(&mut rng);
 
-    // Use stochastic gradient descent (Sgd), with a learning rate of 1e-2, and 0.9 momentum.
     let mut opt: Adam<MLP> = Adam::new(AdamConfig {
-        lr: 1e-4,
+        lr: 2e-4,
         betas: [0.5, 0.25],
         eps: 1e-6,
         weight_decay: Some(WeightDecay::Decoupled(1e-2)),
     });
-//        lr: 2e-3,
-////        momentum: Some(Momentum::Classic(0.9)),
-////        weight_decay: None,
-//    });
 
     return (mlp, opt)
 }
@@ -79,7 +74,7 @@ fn test_array_vec_to_2d_array() {
     println!("{:?}", array_vec_to_2d_array::<[f32; 3], 3>(v));
 }
 
-pub fn predict_emittance_and_density(mlp: &MLP, indices: Vec<[f32; 2]>, views: Vec<[f32; 3]>, points: Vec<[f32; 3]>) -> Tensor2D<BATCH_SIZE, 4, OwnedTape> {
+pub fn predict_emittance_and_density(mlp: &MLP, coords: Vec<[f32; 6]>, views: Vec<[f32; 3]>, points: Vec<[f32; 3]>) -> Tensor2D<BATCH_SIZE, 4, OwnedTape> {
 //    let mut predictions: Vec<Tensor1D<4, OwnedTape>> = Vec::new();
     //TODO: also use view directions
 //    for point in views {
@@ -88,7 +83,7 @@ pub fn predict_emittance_and_density(mlp: &MLP, indices: Vec<[f32; 2]>, views: V
 //        predictions.push(y);
 //    }
 //    let x: Tensor2D<BATCH_SIZE, 3> = tensor(array_vec_to_2d_array::<[f32; 3], BATCH_SIZE>(views));
-    let x: Tensor2D<BATCH_SIZE, 2> = tensor(array_vec_to_2d_array::<[f32; 2], BATCH_SIZE>(indices));
+    let x: Tensor2D<BATCH_SIZE, 6> = tensor(array_vec_to_2d_array::<[f32; 6], BATCH_SIZE>(coords));
 //    let x: Tensor2D<BATCH_SIZE, 3> = dev.stack(views.iter().map(|x| tensor(*x)));
 
     let mut predictions: Tensor2D<BATCH_SIZE, 4, OwnedTape> = mlp.forward(x.trace());
