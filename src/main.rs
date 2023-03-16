@@ -27,7 +27,15 @@ use display::run_window;
 use textplots::{Chart, Plot, Shape};
 
 const DEBUG: bool = false;
-
+// TODO:
+/*
+- Reproduce with CocoNet
+- debug polar and corner coordinates
+- 32x32 image or increase model size
+- learn shaded render
+- try reproduce horse
+- sample highest error samples
+*/
 fn main() {
     let img = image_loading::load_image_as_array("spheres/image-0-basic-128.png");
     println!("image {:?} pixels", img.len());
@@ -40,13 +48,13 @@ fn main() {
         if !DEBUG {
             let (indices, views, points) = ray_sampling::sample_points_batch_along_view_directions(model::BATCH_SIZE);
 //            let (indices, views, points) = ray_sampling::sample_points_along_view_directions();
-            let screen_coords: Vec<[f32; 6]> = indices.iter().map(|&e| [e[0] as f32 / HEIGHT as f32, e[1] as f32 / WIDTH as f32]).map(|e| [
-                e[0],
-                e[1],
-                (1. - e[0]),
-                (1. - e[1]),
-                f32::sqrt((e[0] - 0.5) * (e[0] - 0.5) + (e[1] - 0.5) * (e[1] - 0.5)),
-                1./ (f32::tan((e[0] - 0.5) / (e[1] - 0.5 + 1e-6) + 1e-6))
+            let screen_coords: Vec<[f32; 2]> = indices.iter().map(|&e| [e[0] as f32 / HEIGHT as f32, e[1] as f32 / WIDTH as f32]).map(|e| [
+                e[0] - 0.5,
+                e[1] - 0.5//,
+//                (1. - e[0]),
+//                (1. - e[1]),
+//                f32::sqrt((-(e[0] - 0.5)) * (-(e[0] - 0.5)) + (e[1] - 0.5) * (e[1] - 0.5)),
+//                1./ (f32::tan((-(e[0] - 0.5)) / (e[1] - 0.5 + 1e-6) + 1e-6))
             ]).collect();
             let gold: Vec<[f32; 4]> = indices.iter().map(|[y, x]| img[y * WIDTH + x]).collect();
 
@@ -64,7 +72,7 @@ fn main() {
             .lineplot(&Shape::Continuous(Box::new(|x| batch_losses[x as usize])))
             .display();
 
-            if (batch_losses.len() * model::BATCH_SIZE) % img.len() == 0 {
+            if (batch_losses.len() * model::BATCH_SIZE) % (img.len() * 10) == 0 {
                 backbuffer = [0; WIDTH * HEIGHT];
             }
         }
