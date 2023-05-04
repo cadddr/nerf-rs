@@ -35,6 +35,7 @@ const DEBUG: bool = false;
 - learn shaded render
 - try reproduce horse
 - sample highest error samples
+- predict shading as different channels
 */
 fn main() {
     let img = image_loading::load_image_as_array("spheres/image-0-basic-128.png");
