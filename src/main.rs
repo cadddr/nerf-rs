@@ -21,6 +21,9 @@ use mlp::Mlp;
 mod model;
 use model::{MLP, Sgd, Adam, init_mlp, predict_emittance_and_density, prediction_as_u32, prediction_array_as_u32, step, tensor, from_u8_rgb, HasArrayData};
 
+mod model_tch;
+
+
 mod display;
 use display::run_window;
 
