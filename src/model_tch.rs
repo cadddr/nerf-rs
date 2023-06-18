@@ -32,7 +32,7 @@ pub fn init_mlp() -> (impl Module, Optimizer){
 	
 // pub fn step(model: &mut MLP, opt: &mut Adam<MLP>, y: Tensor2D<BATCH_SIZE, 4, OwnedTape>, gold: Vec<[f32; 4]>) -> f32 {
 	
-pub fn step(net: impl Module, opt: &mut Optimizer, pred_tensor: Tensor, gold: Vec<[f32; 4]>) -> f32{
+pub fn step(net: &impl Module, opt: &mut Optimizer, pred_tensor: Tensor, gold: Vec<[f32; 4]>) -> f32{
 	// let m = tch::vision::mnist::load_dir("data")?;
     // let p = net.forward(&m.train_images.to(Device::Mps));
 	const dim: usize = 4 * BATCH_SIZE;
@@ -44,10 +44,10 @@ pub fn step(net: impl Module, opt: &mut Optimizer, pred_tensor: Tensor, gold: Ve
 }
 	
 // pub fn predict_emittance_and_density(mlp: &MLP, coords: Vec<[f32; 2]>, views: Vec<[f32; 3]>, points: Vec<[f32; 3]>) -> Tensor2D<BATCH_SIZE, 4, OwnedTape> {
-pub fn predict(net: impl Module, coords: Vec<[f32; 2]>) -> Tensor {
+pub fn predict(net: &impl Module, coords: Vec<[f32; 2]>) -> Tensor {
 	const dim: usize = 2 * BATCH_SIZE;
 	let coords_tensor = Tensor::of_slice(&array_vec_to_1d_array::<2, dim>(coords)).view((i64::from(BATCH_SIZE as i32), i64::from(2)));
-	let p = net.forward(&coords_tensor.to(Device::Mps));
+	let mut p = net.forward(&coords_tensor.to(Device::Mps));
 	return p;
 }
 
@@ -60,6 +60,19 @@ fn array_vec_to_1d_array<const D:usize, const OUT:usize>(v: Vec<[f32; D]>) -> [f
 		}
 	}
 	return array;
+}
+
+pub fn tensor_to_vec(a: &Tensor) -> Vec<[f32; 4]> {
+	let mut v = Vec::new();
+	
+	for i in 0..a.size1().unwrap() {
+		let mut r = [0f32; 4];
+		for j in 0..4 {
+			r[j] = a.double_value(&[i as i64, j as i64]) as f32;
+		}
+		v.push(r);
+	}
+	return v;
 }
 
 fn mse_loss(x: &Tensor, y: &Tensor) -> Tensor {

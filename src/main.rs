@@ -46,7 +46,7 @@ fn main() {
     let mut backbuffer = [0; WIDTH * HEIGHT];
 
     // let (mut mlp, mut opt): (MLP, Adam<MLP>) = init_mlp();
-	let (mut mlp, mut opt): (impl Module, Adam) = model_tch::init_mlp()
+	let (mut mlp, mut opt) = model_tch::init_mlp();
     let mut batch_losses: Vec<f32> = Vec::new();
 
     let mut update_window_buffer = |buffer: &mut Vec<u32>| {
@@ -66,11 +66,12 @@ fn main() {
             // let predictions = predict_emittance_and_density(&mlp, screen_coords, views, points);
 			let predictions = model_tch::predict(&mlp, screen_coords);
 
-            for ([y, x], prediction) in indices[..model::BATCH_SIZE].iter().zip(predictions.double_value(&[]).into_iter()) {}//.data().into_iter()) {
-                backbuffer[y * WIDTH + x] = prediction_array_as_u32(prediction);
+            for ([y, x], prediction) in indices[..model::BATCH_SIZE].iter().zip(model_tch::tensor_to_vec(&predictions).into_iter()) {//.data().into_iter()) {
+                backbuffer[y * WIDTH + x] = prediction_array_as_u32(&prediction);
             }
 
-            let loss: f32 = step(&mut mlp, &mut opt, predictions, gold[..model::BATCH_SIZE].to_vec());
+			// let loss: f32 = step(&mut mlp, &mut opt, predictions, gold[..model::BATCH_SIZE].to_vec());
+            let loss: f32 = model_tch::step(&mlp, &mut opt, predictions, gold[..model::BATCH_SIZE].to_vec());
 
             println!("avg loss={:.4}", loss);
             batch_losses.push(loss);
