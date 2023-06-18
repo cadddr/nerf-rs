@@ -1,4 +1,4 @@
-use tch::{Tensor, nn, nn::Module, nn::Optimizer, nn::OptimizerConfig, Device};
+use tch::{Tensor, nn, nn::Module, nn::Optimizer, nn::OptimizerConfig, Device, Kind};
 
 pub const BATCH_SIZE: usize = 128;
 
@@ -35,13 +35,34 @@ pub fn init_mlp() -> (impl Module, Optimizer){
 pub fn step(net: impl Module, opt: &mut Optimizer, pred_tensor: Tensor, gold: Vec<[f32; 4]>) -> f32{
 	// let m = tch::vision::mnist::load_dir("data")?;
     // let p = net.forward(&m.train_images.to(Device::Mps));
-	Tensor::from_slice(&[10f32, 20f32]);
-	let gold_tensor = Tensor::from_slice(&[10f32, 20f32]);//(&gold[..]).unwrap();
-	let loss = pred_tensor.cross_entropy_for_logits(&gold_tensor.to(Device::Mps));
+	const dim: usize = 4 * BATCH_SIZE;
+	let gold_tensor = Tensor::of_slice(&array_vec_to_1d_array::<4, dim>(gold)).view((i64::from(BATCH_SIZE as i32), i64::from(4)));
+	let loss = mse_loss(&pred_tensor, &gold_tensor.to(Device::Mps));
     opt.backward_step(&loss);
 	
 	return f32::try_from(&loss).unwrap();
 }
 	
 // pub fn predict_emittance_and_density(mlp: &MLP, coords: Vec<[f32; 2]>, views: Vec<[f32; 3]>, points: Vec<[f32; 3]>) -> Tensor2D<BATCH_SIZE, 4, OwnedTape> {
+pub fn predict(net: impl Module, coords: Vec<[f32; 2]>) -> Tensor {
+	const dim: usize = 2 * BATCH_SIZE;
+	let coords_tensor = Tensor::of_slice(&array_vec_to_1d_array::<2, dim>(coords)).view((i64::from(BATCH_SIZE as i32), i64::from(2)));
+	let p = net.forward(&coords_tensor.to(Device::Mps));
+	return p;
+}
 
+fn array_vec_to_1d_array<const D:usize, const OUT:usize>(v: Vec<[f32; D]>) -> [f32; OUT] {
+	let mut array = [0f32; OUT];
+	
+    for batch_index in 0..BATCH_SIZE {
+        for item_index in 0..D {
+			array[batch_index * D * BATCH_SIZE + item_index] = v[batch_index][item_index];
+		}
+	}
+	return array;
+}
+
+fn mse_loss(x: &Tensor, y: &Tensor) -> Tensor {
+    let diff = x - y;
+    (&diff * &diff).mean(Kind::Float)
+}
