@@ -45,7 +45,8 @@ fn main() {
     println!("image {:?} pixels", img.len());
     let mut backbuffer = [0; WIDTH * HEIGHT];
 
-    let (mut mlp, mut opt): (MLP, Adam<MLP>) = init_mlp();
+    // let (mut mlp, mut opt): (MLP, Adam<MLP>) = init_mlp();
+	let (mut mlp, mut opt): (impl Module, Adam) = model_tch::init_mlp()
     let mut batch_losses: Vec<f32> = Vec::new();
 
     let mut update_window_buffer = |buffer: &mut Vec<u32>| {
@@ -62,9 +63,10 @@ fn main() {
             ]).collect();
             let gold: Vec<[f32; 4]> = indices.iter().map(|[y, x]| img[y * WIDTH + x]).collect();
 
-            let predictions = predict_emittance_and_density(&mlp, screen_coords, views, points);
+            // let predictions = predict_emittance_and_density(&mlp, screen_coords, views, points);
+			let predictions = model_tch::predict(&mlp, screen_coords);
 
-            for ([y, x], prediction) in indices[..model::BATCH_SIZE].iter().zip(predictions.data().into_iter()) {
+            for ([y, x], prediction) in indices[..model::BATCH_SIZE].iter().zip(predictions.double_value(&[]).into_iter()) {}//.data().into_iter()) {
                 backbuffer[y * WIDTH + x] = prediction_array_as_u32(prediction);
             }
 
