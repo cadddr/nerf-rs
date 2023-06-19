@@ -1,6 +1,6 @@
 use tch::{Tensor, nn, nn::Module, nn::Sequential, nn::Optimizer, nn::OptimizerConfig, Device, Kind};
 
-pub const BATCH_SIZE: usize = 16384;
+pub const BATCH_SIZE: usize = 128;
 
 const IMAGE_DIM: i64 = 2;
 const HIDDEN_NODES: i64 = 100;
@@ -24,8 +24,16 @@ impl TchModel {
 		step(&self.net, &mut self.opt, pred_tensor, gold)
 	}
 	
-	pub fn predict(&self, coords: Vec<[f32; 2]>) -> Tensor {
-		predict(&self.net, coords)
+	pub fn predict(&self, coords: Vec<[f32; 2]>, views: Vec<[f32; 3]>, points: Vec<[f32; 3]>) -> Tensor {
+		predict(&self.net, coords, views, points)
+	}
+	
+	pub fn BATCH_SIZE(&self) -> usize {
+		BATCH_SIZE
+	}
+	
+	pub fn get_predictions_as_array_vec(&self, predictions: &Tensor) -> Vec<[f32; 4]> {
+		tensor_to_vec(&predictions)
 	}
 }
 
@@ -67,7 +75,7 @@ pub fn step(net: &impl Module, opt: &mut Optimizer, pred_tensor: Tensor, gold: V
 }
 	
 // pub fn predict_emittance_and_density(mlp: &MLP, coords: Vec<[f32; 2]>, views: Vec<[f32; 3]>, points: Vec<[f32; 3]>) -> Tensor2D<BATCH_SIZE, 4, OwnedTape> {
-pub fn predict(net: &impl Module, coords: Vec<[f32; 2]>) -> Tensor {
+pub fn predict(net: &impl Module, coords: Vec<[f32; 2]>, views: Vec<[f32; 3]>, points: Vec<[f32; 3]>) -> Tensor {
 	const dim: usize = 2 * BATCH_SIZE;
 	let coords_tensor = Tensor::of_slice(&array_vec_to_1d_array::<2, dim>(coords)).view((i64::from(BATCH_SIZE as i32), i64::from(2)));
 	let mut p = net.forward(&coords_tensor.to(Device::Mps));
