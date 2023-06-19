@@ -1,6 +1,6 @@
 use tch::{Tensor, nn, nn::Module, nn::Optimizer, nn::OptimizerConfig, Device, Kind};
 
-pub const BATCH_SIZE: usize = 128;
+pub const BATCH_SIZE: usize = 8192;
 
 const IMAGE_DIM: i64 = 2;
 const HIDDEN_NODES: i64 = 100;
@@ -53,10 +53,13 @@ pub fn predict(net: &impl Module, coords: Vec<[f32; 2]>) -> Tensor {
 
 fn array_vec_to_1d_array<const D:usize, const OUT:usize>(v: Vec<[f32; D]>) -> [f32; OUT] {
 	let mut array = [0f32; OUT];
-	
+	// println!("{}// ", D);
+// 	println!("{}", OUT);
+// 	println!("{}", BATCH_SIZE);
     for batch_index in 0..BATCH_SIZE {
         for item_index in 0..D {
-			array[batch_index * D * BATCH_SIZE + item_index] = v[batch_index][item_index];
+			// println!("{}", batch_index * D + item_index);
+			array[batch_index * D + item_index] = v[batch_index][item_index];
 		}
 	}
 	return array;
@@ -65,7 +68,7 @@ fn array_vec_to_1d_array<const D:usize, const OUT:usize>(v: Vec<[f32; D]>) -> [f
 pub fn tensor_to_vec(a: &Tensor) -> Vec<[f32; 4]> {
 	let mut v = Vec::new();
 	
-	for i in 0..a.size1().unwrap() {
+	for i in 0..a.size()[0] {
 		let mut r = [0f32; 4];
 		for j in 0..4 {
 			r[j] = a.double_value(&[i as i64, j as i64]) as f32;

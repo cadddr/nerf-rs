@@ -10,7 +10,7 @@ use dfdx::tensor_ops::{add, sub, backward};
 use dfdx::losses::{cross_entropy_with_logits_loss, mse_loss, binary_cross_entropy_with_logits_loss};
 pub use dfdx::optim::{Sgd, SgdConfig, Optimizer, Momentum, Adam, AdamConfig, WeightDecay};
 
-pub const BATCH_SIZE: usize = 128;
+pub const BATCH_SIZE: usize = 16384;
 
 pub type MLP = (
         //TODO: 8 layers 256 each
