@@ -54,7 +54,6 @@ impl TchModel {
 }
 
 
-
 pub fn init_mlp() -> (Sequential, Optimizer){
     let vs = nn::VarStore::new(Device::Mps);
     let net = net(&vs.root());
@@ -65,8 +64,6 @@ pub fn init_mlp() -> (Sequential, Optimizer){
 
 	
 pub fn step(net: &impl Module, opt: &mut Optimizer, pred_tensor: Tensor, gold: Vec<[f32; 4]>) -> f32{
-	// let m = tch::vision::mnist::load_dir("data")?;
-    // let p = net.forward(&m.train_images.to(Device::Mps));
 	const dim: usize = 4 * BATCH_SIZE;
 	let gold_tensor = Tensor::of_slice(&array_vec_to_1d_array::<4, dim>(gold)).view((i64::from(BATCH_SIZE as i32), i64::from(4)));
 	let loss = mse_loss(&pred_tensor, &gold_tensor.to(Device::Mps));
@@ -84,12 +81,9 @@ pub fn predict(net: &impl Module, coords: Vec<[f32; 2]>, views: Vec<[f32; 3]>, p
 
 fn array_vec_to_1d_array<const D:usize, const OUT:usize>(v: Vec<[f32; D]>) -> [f32; OUT] {
 	let mut array = [0f32; OUT];
-	// println!("{}// ", D);
-// 	println!("{}", OUT);
-// 	println!("{}", BATCH_SIZE);
+
     for batch_index in 0..BATCH_SIZE {
         for item_index in 0..D {
-			// println!("{}", batch_index * D + item_index);
 			array[batch_index * D + item_index] = v[batch_index][item_index];
 		}
 	}
