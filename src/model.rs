@@ -12,6 +12,29 @@ pub use dfdx::optim::{Sgd, SgdConfig, Optimizer, Momentum, Adam, AdamConfig, Wei
 
 pub const BATCH_SIZE: usize = 16384;
 
+pub struct DfdxMlp {
+	mlp: MLP,
+	opt: Adam<MLP>
+}
+
+impl DfdxMlp {
+	pub fn new() -> DfdxMlp {
+		let (mut mlp, mut opt): (MLP, Adam<MLP>) = init_mlp();
+		DfdxMlp {
+			mlp: mlp,
+			out: oupt
+		}
+	}
+	
+	pub fn step(&mut self, y: Tensor2D<BATCH_SIZE, 4, OwnedTape>, gold: Vec<[f32; 4]>) -> f32 {
+		step(&self.mlp, &mut self.opt, y, gold) 
+	}
+	
+	pub fn predict(&self, coords: Vec<[f32; 2]>, views: Vec<[f32; 3]>, points: Vec<[f32; 3]>) -> Tensor2D<BATCH_SIZE, 4, OwnedTape> {
+		predict_emittance_and_density(&self.mlp, coords, views, points)
+	}
+}
+
 pub type MLP = (
         //TODO: 8 layers 256 each
 //    the MLP FΘ first processes the input 3D coordinate x with 8 fully-connected layers (using ReLU activations and 256 channels per layer)

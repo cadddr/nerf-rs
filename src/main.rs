@@ -47,7 +47,8 @@ fn main() {
 
     // let (mut mlp, mut opt): (MLP, Adam<MLP>) = init_mlp();
 	// let (mut mlp, mut opt) = model_tch::init_mlp();
-	let mut model = model_tch::TchModel::new();
+	// let mut model = model_tch::TchModel::new();
+	let mut model = model::DfdxMlp::new();
 	
     let mut batch_losses: Vec<f32> = Vec::new();
 
@@ -67,7 +68,8 @@ fn main() {
 
             // let predictions = predict_emittance_and_density(&mlp, screen_coords, views, points);
 			// let predictions = model_tch::predict(&mlp, screen_coords);
-			let predictions = model.predict(screen_coords);
+			// let predictions = model.predict(screen_coords);
+			let predictions = model.predict(screen_coords, views, points);
 
             for ([y, x], prediction) in indices[..model::BATCH_SIZE].iter().zip(model_tch::tensor_to_vec(&predictions).into_iter()) {//.data().into_iter()) {
                 backbuffer[y * WIDTH + x] = prediction_array_as_u32(&prediction);
