@@ -49,7 +49,9 @@ fn main() {
     let mut update_window_buffer = |buffer: &mut Vec<u32>| {
         if !DEBUG {
             let (indices, views, points) = ray_sampling::sample_points_batch_along_view_directions(model.BATCH_SIZE());
+			let gold: Vec<[f32; 4]> = indices.iter().map(|[y, x]| img[y * WIDTH + x]).collect();
 
+			// TODO: input transformations
             let screen_coords: Vec<[f32; 2]> = indices.iter().map(|&e| [e[0] as f32 / HEIGHT as f32, e[1] as f32 / WIDTH as f32]).map(|e| [
                 e[0] - 0.5,
                 e[1] - 0.5//,
@@ -58,8 +60,7 @@ fn main() {
 //                f32::sqrt((-(e[0] - 0.5)) * (-(e[0] - 0.5)) + (e[1] - 0.5) * (e[1] - 0.5)),
 //                1./ (f32::tan((-(e[0] - 0.5)) / (e[1] - 0.5 + 1e-6) + 1e-6))
             ]).collect();
-            let gold: Vec<[f32; 4]> = indices.iter().map(|[y, x]| img[y * WIDTH + x]).collect();
-
+			
 			//predict emittance and density
 			let predictions = model.predict(screen_coords, views, points);
 			for ([y, x], prediction) in indices[..model.BATCH_SIZE()].iter().zip(model.get_predictions_as_array_vec(&predictions).into_iter()) {
@@ -69,16 +70,19 @@ fn main() {
 			let loss: f32 = model.step(predictions, gold[..model.BATCH_SIZE()].to_vec());
 			batch_losses.push(loss);
 			
+			// loss & plotting
             println!("avg loss={:.4}", loss);
             Chart::new(120, 40, 0., batch_losses.len() as f32)
             	.lineplot(&Shape::Continuous(Box::new(|x| batch_losses[x as usize])))
             	.display();
 
+			// refresh backbuffer every few steps
             if (batch_losses.len() * model.BATCH_SIZE()) % (img.len() * 10) == 0 {
                 backbuffer = [0; WIDTH * HEIGHT];
             }
         }
 
+		// draw from either backbuffer or gold image
         for y in 0..HEIGHT {
             for x in 0..WIDTH {
                 if DEBUG {
