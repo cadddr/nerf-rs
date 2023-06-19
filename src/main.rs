@@ -46,7 +46,9 @@ fn main() {
     let mut backbuffer = [0; WIDTH * HEIGHT];
 
     // let (mut mlp, mut opt): (MLP, Adam<MLP>) = init_mlp();
-	let (mut mlp, mut opt) = model_tch::init_mlp();
+	// let (mut mlp, mut opt) = model_tch::init_mlp();
+	let mut model = model_tch::TchModel::new();
+	
     let mut batch_losses: Vec<f32> = Vec::new();
 
     let mut update_window_buffer = |buffer: &mut Vec<u32>| {
@@ -64,14 +66,16 @@ fn main() {
             let gold: Vec<[f32; 4]> = indices.iter().map(|[y, x]| img[y * WIDTH + x]).collect();
 
             // let predictions = predict_emittance_and_density(&mlp, screen_coords, views, points);
-			let predictions = model_tch::predict(&mlp, screen_coords);
+			// let predictions = model_tch::predict(&mlp, screen_coords);
+			let predictions = model.predict(screen_coords);
 
             for ([y, x], prediction) in indices[..model::BATCH_SIZE].iter().zip(model_tch::tensor_to_vec(&predictions).into_iter()) {//.data().into_iter()) {
                 backbuffer[y * WIDTH + x] = prediction_array_as_u32(&prediction);
             }
 
 			// let loss: f32 = step(&mut mlp, &mut opt, predictions, gold[..model::BATCH_SIZE].to_vec());
-            let loss: f32 = model_tch::step(&mlp, &mut opt, predictions, gold[..model::BATCH_SIZE].to_vec());
+            // let loss: f32 = model_tch::step(&mlp, &mut opt, predictions, gold[..model::BATCH_SIZE].to_vec());
+			let loss: f32 = model.step(predictions, gold[..model::BATCH_SIZE].to_vec());
 
             println!("avg loss={:.4}", loss);
             batch_losses.push(loss);
@@ -79,9 +83,9 @@ fn main() {
             .lineplot(&Shape::Continuous(Box::new(|x| batch_losses[x as usize])))
             .display();
 
-            if (batch_losses.len() * model::BATCH_SIZE) % (img.len() * 10) == 0 {
-                backbuffer = [0; WIDTH * HEIGHT];
-            }
+            // if (batch_losses.len() * model::BATCH_SIZE) % (img.len() * 10) == 0 {
+                // backbuffer = [0; WIDTH * HEIGHT];
+            // }
         }
 
         for y in 0..HEIGHT {

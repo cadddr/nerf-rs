@@ -1,13 +1,36 @@
-use tch::{Tensor, nn, nn::Module, nn::Optimizer, nn::OptimizerConfig, Device, Kind};
+use tch::{Tensor, nn, nn::Module, nn::Sequential, nn::Optimizer, nn::OptimizerConfig, Device, Kind};
 
-pub const BATCH_SIZE: usize = 8192;
+pub const BATCH_SIZE: usize = 16384;
 
 const IMAGE_DIM: i64 = 2;
 const HIDDEN_NODES: i64 = 100;
 const LABELS: i64 = 4;
 
+pub struct TchModel {
+	net: Sequential,
+	opt: Optimizer
+}
+
+impl TchModel {
+	pub fn new() -> TchModel {
+		let (net, opt) = init_mlp();
+		TchModel {
+			net: net,
+			opt: opt
+		}
+	}
+	
+	pub fn step(&mut self, pred_tensor: Tensor, gold: Vec<[f32; 4]>) -> f32 {
+		step(&self.net, &mut self.opt, pred_tensor, gold)
+	}
+	
+	pub fn predict(&self, coords: Vec<[f32; 2]>) -> Tensor {
+		predict(&self.net, coords)
+	}
+}
+
 // MLP
-fn net(vs: &nn::Path) -> impl Module {
+fn net(vs: &nn::Path) -> Sequential {
     nn::seq()
         .add(nn::linear(vs / "layer1", IMAGE_DIM, HIDDEN_NODES, Default::default()))
         .add_fn(|xs| xs.tanh())
@@ -22,10 +45,10 @@ fn net(vs: &nn::Path) -> impl Module {
         .add(nn::linear(vs, HIDDEN_NODES, LABELS, Default::default()))
 }
 // pub fn init_mlp() -> (MLP, Adam<MLP>) {
-pub fn init_mlp() -> (impl Module, Optimizer){
+pub fn init_mlp() -> (Sequential, Optimizer){
     let vs = nn::VarStore::new(Device::Mps);
     let net = net(&vs.root());
-    let mut opt = nn::Adam::default().build(&vs, 5e-5).unwrap();
+    let mut opt = nn::Adam::default().build(&vs, 5e-4).unwrap();
 	
 	return (net, opt)
 }
