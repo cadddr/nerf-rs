@@ -2,14 +2,14 @@ use tch::{Tensor, nn, nn::Module, nn::Sequential, nn::Optimizer, nn::OptimizerCo
 
 pub const BATCH_SIZE: usize = 128;
 
-const IMAGE_DIM: i64 = 2;
+pub const INDIM: usize = 6;
 const HIDDEN_NODES: i64 = 100;
 const LABELS: i64 = 4;
 
 // MLP
 fn net(vs: &nn::Path) -> Sequential {
     nn::seq()
-        .add(nn::linear(vs / "layer1", IMAGE_DIM, HIDDEN_NODES, Default::default()))
+        .add(nn::linear(vs / "layer1", INDIM as i64, HIDDEN_NODES, Default::default()))
         .add_fn(|xs| xs.tanh())
         .add(nn::linear(vs / "layer2", HIDDEN_NODES, HIDDEN_NODES, Default::default()))
         .add_fn(|xs| xs.tanh())
@@ -40,7 +40,7 @@ impl TchModel {
 		step(&self.net, &mut self.opt, pred_tensor, gold)
 	}
 	
-	pub fn predict(&self, coords: Vec<[f32; 2]>, views: Vec<[f32; 3]>, points: Vec<[f32; 3]>) -> Tensor {
+	pub fn predict(&self, coords: Vec<[f32; INDIM]>, views: Vec<[f32; 3]>, points: Vec<[f32; 3]>) -> Tensor {
 		predict(&self.net, coords, views, points)
 	}
 	
@@ -72,9 +72,9 @@ pub fn step(net: &impl Module, opt: &mut Optimizer, pred_tensor: Tensor, gold: V
 	return f32::try_from(&loss).unwrap();
 }
 	
-pub fn predict(net: &impl Module, coords: Vec<[f32; 2]>, views: Vec<[f32; 3]>, points: Vec<[f32; 3]>) -> Tensor {
-	const dim: usize = 2 * BATCH_SIZE;
-	let coords_tensor = Tensor::of_slice(&array_vec_to_1d_array::<2, dim>(coords)).view((i64::from(BATCH_SIZE as i32), i64::from(2)));
+pub fn predict(net: &impl Module, coords: Vec<[f32; INDIM]>, views: Vec<[f32; 3]>, points: Vec<[f32; 3]>) -> Tensor {
+	const dim: usize = INDIM * BATCH_SIZE;
+	let coords_tensor = Tensor::of_slice(&array_vec_to_1d_array::<INDIM, dim>(coords)).view((i64::from(BATCH_SIZE as i32), INDIM as i64));
 	let mut p = net.forward(&coords_tensor.to(Device::Mps));
 	return p;
 }

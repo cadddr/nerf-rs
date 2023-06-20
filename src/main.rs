@@ -12,8 +12,7 @@ use ray_sampling::{HEIGHT, WIDTH};
 
 mod image_loading;
 
-mod mlp;
-use mlp::Mlp;
+mod input_transforms;
 
 mod model_dfdx;
 use model_dfdx::{prediction_as_u32, prediction_array_as_u32, from_u8_rgb};
@@ -41,9 +40,9 @@ fn main() {
     println!("image {:?} pixels", img.len());
     let mut backbuffer = [0; WIDTH * HEIGHT];
 
-	let mut model = model_tch::TchModel::new();
 	// let mut model = model_dfdx::DfdxMlp::new();
-	
+	let mut model = model_tch::TchModel::new();
+
     let mut batch_losses: Vec<f32> = Vec::new();
 
     let mut update_window_buffer = |buffer: &mut Vec<u32>| {
@@ -51,15 +50,8 @@ fn main() {
             let (indices, views, points) = ray_sampling::sample_points_batch_along_view_directions(model.BATCH_SIZE());
 			let gold: Vec<[f32; 4]> = indices.iter().map(|[y, x]| img[y * WIDTH + x]).collect();
 
-			// TODO: input transformations
-            let screen_coords: Vec<[f32; 2]> = indices.iter().map(|&e| [e[0] as f32 / HEIGHT as f32, e[1] as f32 / WIDTH as f32]).map(|e| [
-                e[0] - 0.5,
-                e[1] - 0.5//,
-//                (1. - e[0]),
-//                (1. - e[1]),
-//                f32::sqrt((-(e[0] - 0.5)) * (-(e[0] - 0.5)) + (e[1] - 0.5) * (e[1] - 0.5)),
-//                1./ (f32::tan((-(e[0] - 0.5)) / (e[1] - 0.5 + 1e-6) + 1e-6))
-            ]).collect();
+			
+            let screen_coords: Vec<[f32; model_tch::INDIM]> = indices.iter().map(input_transforms::scale_by_screen_size_and_coconet).collect();
 			
 			//predict emittance and density
 			let predictions = model.predict(screen_coords, views, points);
@@ -71,7 +63,7 @@ fn main() {
 			batch_losses.push(loss);
 			
 			// loss & plotting
-            println!("avg loss={:.4}", loss);
+            println!("avg loss={:.16}", loss);
             Chart::new(120, 40, 0., batch_losses.len() as f32)
             	.lineplot(&Shape::Continuous(Box::new(|x| batch_losses[x as usize])))
             	.display();
