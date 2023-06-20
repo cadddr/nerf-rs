@@ -1,8 +1,8 @@
 use tch::{Tensor, nn, nn::Module, nn::Sequential, nn::Optimizer, nn::OptimizerConfig, Device, Kind};
 
-pub const BATCH_SIZE: usize = 128;
+pub const BATCH_SIZE: usize = 4096;
 
-pub const INDIM: usize = 6;
+pub const INDIM: usize = 2;
 const HIDDEN_NODES: i64 = 100;
 const LABELS: i64 = 4;
 
@@ -10,15 +10,15 @@ const LABELS: i64 = 4;
 fn net(vs: &nn::Path) -> Sequential {
     nn::seq()
         .add(nn::linear(vs / "layer1", INDIM as i64, HIDDEN_NODES, Default::default()))
-        .add_fn(|xs| xs.tanh())
+        .add_fn(|xs| xs.relu())
         .add(nn::linear(vs / "layer2", HIDDEN_NODES, HIDDEN_NODES, Default::default()))
-        .add_fn(|xs| xs.tanh())
+        .add_fn(|xs| xs.relu())
         .add(nn::linear(vs / "layer3", HIDDEN_NODES, HIDDEN_NODES, Default::default()))
-        .add_fn(|xs| xs.tanh())
+        .add_fn(|xs| xs.relu())
         .add(nn::linear(vs / "layer4", HIDDEN_NODES, HIDDEN_NODES, Default::default()))
-        .add_fn(|xs| xs.tanh())
+        .add_fn(|xs| xs.relu())
         .add(nn::linear(vs / "layer5", HIDDEN_NODES, HIDDEN_NODES, Default::default()))
-        .add_fn(|xs| xs.tanh())
+        .add_fn(|xs| xs.relu())
         .add(nn::linear(vs, HIDDEN_NODES, LABELS, Default::default()))
 }
 
@@ -57,7 +57,7 @@ impl TchModel {
 pub fn init_mlp() -> (Sequential, Optimizer){
     let vs = nn::VarStore::new(Device::Mps);
     let net = net(&vs.root());
-    let mut opt = nn::Adam::default().build(&vs, 5e-4).unwrap();
+    let mut opt = nn::Adam::default().build(&vs, 1e-3).unwrap();
 	
 	return (net, opt)
 }
