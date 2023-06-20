@@ -52,7 +52,7 @@ fn main() {
 			let gold: Vec<[f32; 4]> = indices.iter().map(|[y, x]| img[y * WIDTH + x]).collect();
 
 			
-            let screen_coords: Vec<[f32; model_tch::INDIM]> = indices.iter().map(input_transforms::scale_by_screen_size_and_center).collect();
+            let screen_coords: Vec<[f32; model_tch::INDIM]> = indices.iter().map(input_transforms::scale_by_screen_size_and_fourier::<32>).collect();
 			
 			//predict emittance and density
 			let predictions = model.predict(screen_coords, views, points);

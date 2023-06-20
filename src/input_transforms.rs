@@ -41,3 +41,20 @@ fn corners_and_polar(e: &[f32; 2]) -> [f32; 6] {
 	]
 }
 
+pub fn scale_by_screen_size_and_fourier<const L: usize>(e: &[usize; 2]) -> [f32; L] {
+	fourier_features::<L>(&scale_by_screen_size_and_center(&e))
+}
+
+fn fourier_features<const L: usize>(e: &[f32; 2]) -> [f32; L] {
+	let mut encoding = [0f32; L];
+	for i in 0..L / 2 {
+		if i % 2 == 0 {
+			encoding[i] = f32::sin(f32::powf(2., (i / 2) as f32) * e[1]);
+		}
+		else {
+			encoding[i] = f32::cos(f32::powf(2., (i / 2) as f32) * e[0]);
+		}
+	}
+	return encoding;
+}
+
