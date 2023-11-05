@@ -2,7 +2,7 @@ use tch::{Tensor, nn, nn::Module, nn::Sequential, nn::Optimizer, nn::OptimizerCo
 
 pub const BATCH_SIZE: usize = 4096;
 
-pub const INDIM: usize = 32;
+pub const INDIM: usize = 6;
 const HIDDEN_NODES: i64 = 100;
 const LABELS: i64 = 4;
 

@@ -37,7 +37,7 @@ const REFRESH_EPOCHS: usize = 5;
 - predict shading as different channels
 */
 fn main() {
-    let img = image_loading::load_image_as_array("spheres/image-0-basic-128.png");
+    let img = image_loading::load_image_as_array("spheres/image-0.png");//image-0-basic-128.png");
     println!("image {:?} pixels", img.len());
     let mut backbuffer = [0; WIDTH * HEIGHT];
 
@@ -48,11 +48,11 @@ fn main() {
 
     let mut update_window_buffer = |buffer: &mut Vec<u32>| {
         if !DEBUG {
-            let (indices, views, points) = ray_sampling::sample_points_batch_along_view_directions(model.BATCH_SIZE());
+            let (indices, views, points) =
+                ray_sampling::sample_points_batch_along_view_directions(model.BATCH_SIZE());
 			let gold: Vec<[f32; 4]> = indices.iter().map(|[y, x]| img[y * WIDTH + x]).collect();
-
 			
-            let screen_coords: Vec<[f32; model_tch::INDIM]> = indices.iter().map(input_transforms::scale_by_screen_size_and_fourier::<32>).collect();
+            let screen_coords: Vec<[f32; model_tch::INDIM]> = indices.iter().map(input_transforms::scale_by_screen_size_and_coconet).collect();
 			
 			//predict emittance and density
 			let predictions = model.predict(screen_coords, views, points);
