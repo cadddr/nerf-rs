@@ -1,6 +1,6 @@
 use tch::{Tensor, nn, nn::Module, nn::Sequential, nn::Optimizer, nn::OptimizerConfig, Device, Kind};
 
-pub const BATCH_SIZE: usize = 65536;
+pub const BATCH_SIZE: usize = 131077;
 
 pub const INDIM: usize = 2;
 const HIDDEN_NODES: i64 = 100;
