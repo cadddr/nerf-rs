@@ -107,19 +107,38 @@ fn main() {
 	
     let screen_coords: Vec<[f32; model_tch::INDIM]> = indices.iter().map(input_transforms::scale_by_screen_size_and_center).collect();
 
-    // let mut update_window_buffer = |buffer: &mut Vec<u32>| {
-	for iter in 0..num_iter {
+	let mut iter = 0;
+    let mut update_window_buffer = |buffer: &mut Vec<u32>| {
+	// for iter in 0..num_iter {
         if !DEBUG {
             
 			
 			//predict emittance and density
 			let predictions = model.predict(screen_coords.clone(), views.clone(), points.clone());
 			
-			if (iter % 100 == 0) {
+			if (iter % 1000 == 0) {
+				// refresh backbuffer every few steps
+	            // if (batch_losses.len() * model.BATCH_SIZE()) % (img.len() * REFRESH_EPOCHS) == 0 {
+	                backbuffer = [0; WIDTH * HEIGHT];
+	            // }
+				
 				for ([y, x], prediction) in indices[..model.BATCH_SIZE()].iter().zip(model.get_predictions_as_array_vec(&predictions).into_iter()) {
                 	backbuffer[y * WIDTH + x] = prediction_array_as_u32(&prediction);
             	}
 			}
+			
+			// draw from either backbuffer or gold image
+	       for y in 0..HEIGHT {
+	            for x in 0..WIDTH {
+	                if DEBUG {
+	                    let gold = img[y * WIDTH + x];
+	                    buffer[y * WIDTH + x] = from_u8_rgb((gold[0] * 255.) as u8, (gold[1]*255.) as u8, (gold[2]*255.) as u8);
+	                }
+	                else{
+	                    buffer[y * WIDTH + x] = backbuffer[y * WIDTH + x];
+	                }
+	            }
+	        }
 
 			let loss: f32 = model.step(predictions, gold[..model.BATCH_SIZE()].to_vec());
 			batch_losses.push(loss);
@@ -130,25 +149,14 @@ fn main() {
             	.lineplot(&Shape::Continuous(Box::new(|x| batch_losses[x as usize])))
             	.display();
 
-			// refresh backbuffer every few steps
-            if (batch_losses.len() * model.BATCH_SIZE()) % (img.len() * REFRESH_EPOCHS) == 0 {
-                backbuffer = [0; WIDTH * HEIGHT];
-            }
+
         }
 
-		// draw from either backbuffer or gold image
-       // for y in 0..H// EIGHT {
-//             for x in 0..WIDTH {
-//                 if DEBUG {
-//                     let gold = img[y * WIDTH + x];
-//                     buffer[y * WIDTH + x] = from_u8_rgb((gold[0] * 255.) as u8, (gold[1]*255.) as u8, (gold[2]*255.) as u8);
-//                 }
-//                 else{
-//                     buffer[y * WIDTH + x] = backbuffer[y * WIDTH + x];
-//                 }
-//             }
-//         }
 
+		iter = iter + 1;
+		if iter > num_iter {
+			panic!("Reached maximum iterations")
+		}
     };
-    // run_window(update_window_buffer, WIDTH, HEIGHT);
+    run_window(update_window_buffer, WIDTH, HEIGHT);
 }
