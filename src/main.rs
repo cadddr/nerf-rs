@@ -46,7 +46,8 @@ fn main() {
 	// let mut model = model_dfdx::DfdxMlp::new();
 	let mut model = model_tch::TchModel::new();
 	
-    let (indices, views, points) = ray_sampling::sample_points_batch_along_view_directions(model.BATCH_SIZE());
+    // let (indices, views, points) = ray_sampling::sample_points_batch_along_view_directions(model.BATCH_SIZE());
+	let (indices, views, points) = ray_sampling::sample_points_tensor_along_view_directions(model.BATCH_SIZE());
 	let gold: Vec<[f32; 4]> = indices.iter().map(|[y, x]| img[y * WIDTH + x]).collect();
     let screen_coords: Vec<[f32; model_tch::INDIM]> = indices.iter().map(input_transforms::scale_by_screen_size_and_center).collect();
 
@@ -55,6 +56,10 @@ fn main() {
     let mut update_window_buffer = |buffer: &mut Vec<u32>| {
         if !DEBUG {
 			//predict emittance and density
+			// let (indices, views, points) = ray_sampling::sample_points_tensor_along_view_directions(model.BATCH_SIZE());
+			// let screen_coords: Vec<[f32; model_tch::INDIM]> = indices.iter().map(input_transforms::scale_by_screen_size_and_center).collect();
+			// print!("{:?}", indices);
+			
 			let predictions = model.predict(screen_coords.clone(), views.clone(), points.clone());
 			
 			if (iter % eval_steps == 0) {

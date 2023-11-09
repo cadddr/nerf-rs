@@ -94,6 +94,18 @@ pub fn sample_points_batch_along_view_directions(batch_size: usize) -> (Vec<[usi
     return (indices, views, points);
 }
 
+use tch::{Tensor, kind, Kind};
+pub fn sample_points_tensor_along_view_directions(batch_size: usize) -> (Vec<[usize; 2]>, Vec<[f32; 3]>, Vec<[f32; 3]>) {
+	let mut coord_y: Vec<i64> = Vec::try_from(Tensor::randint(HEIGHT as i64, &[batch_size as i64], kind::FLOAT_CPU)).unwrap(); 
+	let mut coord_x: Vec<i64> = Vec::try_from(Tensor::randint(WIDTH as i64, &[batch_size as i64], kind::FLOAT_CPU)).unwrap(); 
+	
+	let mut indices = coord_y.iter().zip(coord_x.iter()).map(|(y, x)|[*y as usize, *x as usize]).collect();
+    let mut views: Vec<[f32; 3]> = Vec::new(); // TODO:
+    let mut points: Vec<[f32; 3]> = Vec::new();
+	
+	return (indices, views, points);
+}
+
 
 #[test]
 fn ray_direction_within_fov() {
