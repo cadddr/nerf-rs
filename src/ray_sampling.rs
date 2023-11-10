@@ -99,9 +99,9 @@ pub fn sample_points_tensor_along_view_directions(batch_size: usize) -> (Vec<[us
 	let mut coord_y: Vec<i64> = Vec::try_from(Tensor::randint(HEIGHT as i64, &[batch_size as i64], kind::FLOAT_CPU)).unwrap(); 
 	let mut coord_x: Vec<i64> = Vec::try_from(Tensor::randint(WIDTH as i64, &[batch_size as i64], kind::FLOAT_CPU)).unwrap(); 
 	
-	let mut indices = coord_y.iter().zip(coord_x.iter()).map(|(y, x)|[*y as usize, *x as usize]).collect();
+	let mut indices: Vec<[usize; 2]> = coord_y.iter().zip(coord_x.iter()).map(|(y, x)|[*y as usize, *x as usize]).collect();
     let mut views: Vec<[f32; 3]> = Vec::new(); // TODO:
-    let mut points: Vec<[f32; 3]> = Vec::new();
+    let mut points: Vec<[f32; 3]> = indices.iter().map(|[y, x]| screen_space_to_world_space(*x as f32, *y as f32, WIDTH as f32, HEIGHT as f32)).map(|to| sample_points_along_ray(FROM, to)[0]).collect();
 	
 	return (indices, views, points);
 }
