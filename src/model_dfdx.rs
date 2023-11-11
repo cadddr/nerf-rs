@@ -166,6 +166,10 @@ pub fn from_u8_rgb(r: u8, g: u8, b: u8) -> u32 {
     (r << 16) | (g << 8) | b
 }
 
+pub fn rgba_to_u8_array(rgba: &u32) -> [u8; 3] {
+	[(*rgba >> 16) as u8, (*rgba >> 8) as u8, *rgba as u8]
+}
+
 pub fn prediction_as_u32(prediction: &Tensor1D<4, OwnedTape>) -> u32 {
     let rgba: &[f32; 4] = prediction.data();
     return from_u8_rgb((rgba[0] * 255.) as u8, (rgba[1] * 255.) as u8, (rgba[2] * 255.) as u8)

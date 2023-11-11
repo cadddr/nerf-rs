@@ -23,14 +23,16 @@ fn net(vs: &nn::Path) -> Sequential {
 }
 
 pub struct TchModel {
+	vs: nn::VarStore,
 	net: Sequential,
 	opt: Optimizer
 }
 
 impl TchModel {
 	pub fn new() -> TchModel {
-		let (net, opt) = init_mlp();
+		let (vs, net, opt) = init_mlp();
 		TchModel {
+			vs: vs,
 			net: net,
 			opt: opt
 		}
@@ -51,15 +53,23 @@ impl TchModel {
 	pub fn get_predictions_as_array_vec(&self, predictions: &Tensor) -> Vec<[f32; 4]> {
 		tensor_to_vec(&predictions)
 	}
+	
+	pub fn save(&self, save_path: &str) {
+		&self.vs.save(&save_path).unwrap();
+	}
+	
+	pub fn load(&mut self, load_path: &str) {
+		&self.vs.load(&load_path).unwrap();
+	}
 }
 
 
-pub fn init_mlp() -> (Sequential, Optimizer){
+pub fn init_mlp() -> (nn::VarStore, Sequential, Optimizer) {
     let vs = nn::VarStore::new(Device::Mps);
     let net = net(&vs.root());
     let mut opt = nn::Adam::default().build(&vs, 5e-5).unwrap();
 	
-	return (net, opt)
+	return (vs, net, opt)
 }
 
 	

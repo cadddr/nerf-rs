@@ -15,7 +15,7 @@ mod image_loading;
 mod input_transforms;
 
 mod model_dfdx;
-use model_dfdx::{prediction_as_u32, prediction_array_as_u32, from_u8_rgb};
+use model_dfdx::{prediction_as_u32, prediction_array_as_u32, from_u8_rgb, rgba_to_u8_array};
 
 mod model_tch;
 
@@ -24,8 +24,15 @@ use display::run_window;
 
 use textplots::{Chart, Plot, Shape};
 
+use clap::Parser;
+
+use std::fs::File;
+use std::io::{Write, BufReader, BufRead, Error};
+
+use tensorboard_rs::summary_writer::SummaryWriter;
+
 const DEBUG: bool = false;
-const REFRESH_EPOCHS: usize = 5;
+const REFRESH_EPOCHS: usize = 100;
 const num_iter: usize = 50000;
 const eval_steps: usize = 200;
 // TODO:
@@ -34,17 +41,39 @@ const eval_steps: usize = 200;
 - predict shading as different channels
 */
 
+#[derive(Parser)]
+struct Cli {
+	#[arg(default_value = "spheres/image-0.png")]
+    img_path: String,
+	
+	#[arg(default_value = "./logdir")]
+    log_dir: String,
+	
+	#[arg(default_value = "checkpoint.ot")]
+	save_path: String,
+	
+	#[arg(default_value = "")]
+	load_path: String
+}
+
 fn main() {
 	/*
 	Main loop. Reads image(s), inits model, runs train loop (within window refresh handler);
 	on eval - draw to backbuffer, which is displayed on every frame
 	*/
-    let img = image_loading::load_image_as_array("spheres/image-0.png");
+	
+	let args = Cli::parse();
+	let mut writer = SummaryWriter::new(&args.log_dir);
+	
+    let img = image_loading::load_image_as_array(&args.img_path);
     println!("image {:?} pixels", img.len());
     let mut backbuffer = [0; WIDTH * HEIGHT];
 
 	// let mut model = model_dfdx::DfdxMlp::new();
 	let mut model = model_tch::TchModel::new();
+	if args.load_path != "" {
+		model.load(&args.load_path);
+	}
 
 	let mut iter = 0;
 	let mut batch_losses: Vec<f32> = Vec::new();
@@ -67,20 +96,23 @@ fn main() {
 				for ([y, x], prediction) in indices[..model.BATCH_SIZE()].iter().zip(model.get_predictions_as_array_vec(&predictions).into_iter()) {
                 	backbuffer[y * WIDTH + x] = prediction_array_as_u32(&prediction);
             	}
+				
+				writer.add_image("prediction", &backbuffer.iter().map(rgba_to_u8_array).flatten().collect::<Vec<u8>>(), &vec![3, WIDTH, HEIGHT][..], iter);
+				model.save(&args.save_path);
 			}
 
 			let loss: f32 = model.step(predictions, gold[..model.BATCH_SIZE()].to_vec());
-			batch_losses.push(loss);
-			
 			// loss & plotting
-            println!("avg loss={:.16}", loss);
+            println!("iter={}, loss={:.16}", iter, loss);
+			writer.add_scalar("loss", loss, iter);
+			
+			batch_losses.push(loss);
             Chart::new(120, 40, 0., batch_losses.len() as f32)
             	.lineplot(&Shape::Continuous(Box::new(|x| batch_losses[x as usize])))
             	.display();
         }
 		
 		draw_to_screen(buffer, &backbuffer, &img);
-
 		iter = iter + 1;
 		if iter > num_iter {
 			panic!("Reached maximum iterations")
