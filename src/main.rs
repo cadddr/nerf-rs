@@ -26,6 +26,7 @@ use textplots::{Chart, Plot, Shape};
 use clap::Parser;
 
 use std::time::SystemTime;
+
 use tensorboard_rs::summary_writer::SummaryWriter;
 
 const DEBUG: bool = false;
@@ -69,6 +70,7 @@ fn main() {
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
         .as_secs();
+
     let args = Cli::parse();
 
     let img = image_loading::load_image_as_array(&args.img_path);
@@ -96,21 +98,49 @@ fn main() {
             .map(input_transforms::scale_by_screen_size_and_fourier::<3>)
             .collect();
 
-        let predictions = model.predict(points.clone(), views.clone(), screen_coords.clone());
+		let predictions = model.predict(points.clone(), views.clone(), screen_coords.clone());
 
-        if iter % args.eval_steps == 0 {
-            // refresh backbuffer every few steps
-            if (batch_losses.len() * model.BATCH_SIZE()) % (img.len() * args.refresh_epochs) == 0 {
-                backbuffer = [0; WIDTH * HEIGHT];
-            }
+		if iter % args.eval_steps == 0 {
+			// refresh backbuffer every few steps
+			if (batch_losses.len() * model.BATCH_SIZE()) % (img.len() * args.refresh_epochs) == 0 {
+				backbuffer = [0; WIDTH * HEIGHT];
+			}
 
-            // write batch predictions to backbuffer to display until next eval
-            for ([y, x], prediction) in indices
+			let mut bucket_counts_y: [f64; HEIGHT] = [0.; HEIGHT];
+			let mut bucket_counts_x: [f64; WIDTH] = [0.; WIDTH];
+			// write batch predictions to backbuffer to display until next eval
+			for ([y, x], prediction) in indices
                 .iter()
                 .zip(model.get_predictions_as_array_vec(&predictions).into_iter())
             {
-                backbuffer[y * WIDTH + x] = prediction_array_as_u32(&prediction);
-            }
+				backbuffer[y * WIDTH + x] = prediction_array_as_u32(&prediction);
+				bucket_counts_y[*y] += 1.;
+				bucket_counts_x[*x] += 1.;
+			}
+
+			writer.add_histogram_raw(
+				"screen_y",
+                0 as f64,
+                HEIGHT as f64,
+                indices.len() as f64,
+                bucket_counts_y.iter().sum::<f64>() as f64,
+                bucket_counts_y.iter().map(|y| y * y).sum::<f64>() as f64,
+                &(0..HEIGHT as i64).map(|y|y as f64).collect::<Vec<f64>>(),
+				&bucket_counts_y,
+				iter,
+            );
+
+			writer.add_histogram_raw(
+				"screen_x",
+                0 as f64,
+                WIDTH as f64,
+                indices.len() as f64,
+                bucket_counts_x.iter().sum::<f64>() as f64,
+                bucket_counts_x.iter().map(|x| x * x).sum::<f64>() as f64,
+                &(0..HEIGHT as i64).map(|x|x as f64).collect::<Vec<f64>>(),
+				&bucket_counts_x,
+				iter,
+            );
 
             writer.add_image(
                 "prediction",
@@ -136,11 +166,13 @@ fn main() {
             .display();
 
         draw_to_screen(buffer, &backbuffer, &img);
+
         iter = iter + 1;
         if iter > args.num_iter {
             panic!("Reached maximum iterations")
         }
     };
+
     run_window(update_window_buffer, WIDTH, HEIGHT);
 }
 
