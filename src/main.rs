@@ -7,7 +7,7 @@
 //  fully-connected layer (using a ReLU activation and 128 channels) that output the view-dependent RGB color.
 //and using volume ren- dering techniques to composite these values into an image (c
 mod ray_sampling;
-use ray_sampling::{HEIGHT, WIDTH};
+use ray_sampling::{HEIGHT, WIDTH, T_FAR};
 
 mod image_loading;
 
@@ -98,49 +98,33 @@ fn main() {
             .map(input_transforms::scale_by_screen_size_and_fourier::<3>)
             .collect();
 
-		let predictions = model.predict(points.clone(), views.clone(), screen_coords.clone());
+        let predictions = model.predict(points.clone(), views.clone(), screen_coords.clone());
 
-		if iter % args.eval_steps == 0 {
-			// refresh backbuffer every few steps
-			if (batch_losses.len() * model.BATCH_SIZE()) % (img.len() * args.refresh_epochs) == 0 {
-				backbuffer = [0; WIDTH * HEIGHT];
-			}
+        if iter % args.eval_steps == 0 {
+            // refresh backbuffer every few steps
+            if (batch_losses.len() * model.BATCH_SIZE()) % (img.len() * args.refresh_epochs) == 0 {
+                backbuffer = [0; WIDTH * HEIGHT];
+            }
 
-			let mut bucket_counts_y: [f64; HEIGHT] = [0.; HEIGHT];
-			let mut bucket_counts_x: [f64; WIDTH] = [0.; WIDTH];
-			// write batch predictions to backbuffer to display until next eval
-			for ([y, x], prediction) in indices
+            let mut bucket_counts_y: [f64; HEIGHT] = [0.; HEIGHT];
+            let mut bucket_counts_x: [f64; WIDTH] = [0.; WIDTH];
+			let mut bucket_counts_z: [f64; T_FAR as usize] = [0.; T_FAR as usize];
+
+            // write batch predictions to backbuffer to display until next eval
+			for (([y, x], prediction), [world_x, world_y, world_z]) in indices
                 .iter()
                 .zip(model.get_predictions_as_array_vec(&predictions).into_iter())
+				.zip(points).into_iter()
             {
-				backbuffer[y * WIDTH + x] = prediction_array_as_u32(&prediction);
-				bucket_counts_y[*y] += 1.;
-				bucket_counts_x[*x] += 1.;
-			}
+                backbuffer[y * WIDTH + x] = prediction_array_as_u32(&prediction);
+                bucket_counts_y[*y] += 1.;
+                bucket_counts_x[*x] += 1.;
+				bucket_counts_z[(world_z / T_FAR) as usize] += 1.
+            }
 
-			writer.add_histogram_raw(
-				"screen_y",
-                0 as f64,
-                HEIGHT as f64,
-                indices.len() as f64,
-                bucket_counts_y.iter().sum::<f64>() as f64,
-                bucket_counts_y.iter().map(|y| y * y).sum::<f64>() as f64,
-                &(0..HEIGHT as i64).map(|y|y as f64).collect::<Vec<f64>>(),
-				&bucket_counts_y,
-				iter,
-            );
-
-			writer.add_histogram_raw(
-				"screen_x",
-                0 as f64,
-                WIDTH as f64,
-                indices.len() as f64,
-                bucket_counts_x.iter().sum::<f64>() as f64,
-                bucket_counts_x.iter().map(|x| x * x).sum::<f64>() as f64,
-                &(0..HEIGHT as i64).map(|x|x as f64).collect::<Vec<f64>>(),
-				&bucket_counts_x,
-				iter,
-            );
+			log_as_hist(&mut writer, "screen_y", bucket_counts_y, iter);
+			log_as_hist(&mut writer, "screen_x", bucket_counts_x, iter);
+			log_as_hist(&mut writer, "world_z", bucket_counts_z, iter);
 
             writer.add_image(
                 "prediction",
@@ -174,6 +158,25 @@ fn main() {
     };
 
     run_window(update_window_buffer, WIDTH, HEIGHT);
+}
+
+fn log_as_hist<const RANGE: usize>(
+    writer: &mut SummaryWriter,
+    tag: &str,
+    bucket_counts: [f64; RANGE],
+    iter: usize,
+) {
+    writer.add_histogram_raw(
+        tag,
+        0 as f64,
+        RANGE as f64,
+        bucket_counts.iter().sum::<f64>() as f64,
+        bucket_counts.iter().sum::<f64>() as f64,
+        bucket_counts.iter().map(|o| o * o).sum::<f64>() as f64,
+        &(0..RANGE as i64).map(|o| o as f64).collect::<Vec<f64>>(),
+        &bucket_counts,
+        iter,
+    );
 }
 
 fn draw_to_screen(buffer: &mut Vec<u32>, backbuffer: &[u32; WIDTH * HEIGHT], img: &Vec<[f32; 4]>) {

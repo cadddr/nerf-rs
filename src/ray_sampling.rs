@@ -10,7 +10,7 @@ const AT: [f32; 3] =   [0., 0.,  1.];
 
 const NUM_SAMPLES: usize = 1;
 const RAY_PROB: f32 = 200. /(512. * 512.);
-const T_FAR: f32 = 10.;
+pub const T_FAR: f32 = 10.;
 
 pub const WIDTH: usize = 512;
 pub const HEIGHT: usize = 512;
