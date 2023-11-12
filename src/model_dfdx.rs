@@ -174,6 +174,7 @@ pub fn prediction_as_u32(prediction: &Tensor1D<4, OwnedTape>) -> u32 {
     let rgba: &[f32; 4] = prediction.data();
     return from_u8_rgb((rgba[0] * 255.) as u8, (rgba[1] * 255.) as u8, (rgba[2] * 255.) as u8)
 }
+
 pub fn prediction_array_as_u32(rgba: &[f32; 4]) -> u32 {
     return from_u8_rgb((rgba[0] * 255.) as u8, (rgba[1] * 255.) as u8, (rgba[2] * 255.) as u8)
 }

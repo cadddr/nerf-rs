@@ -109,6 +109,10 @@ fn main() {
             let mut bucket_counts_y: [f64; HEIGHT] = [0.; HEIGHT];
             let mut bucket_counts_x: [f64; WIDTH] = [0.; WIDTH];
 			let mut bucket_counts_z: [f64; T_FAR as usize] = [0.; T_FAR as usize];
+			let mut bucket_counts_r: [f64; T_FAR as usize] = [0.; T_FAR as usize];
+			let mut bucket_counts_g: [f64; T_FAR as usize] = [0.; T_FAR as usize];
+			let mut bucket_counts_b: [f64; T_FAR as usize] = [0.; T_FAR as usize];
+
 
             // write batch predictions to backbuffer to display until next eval
 			for (([y, x], prediction), [world_x, world_y, world_z]) in indices
@@ -119,12 +123,19 @@ fn main() {
                 backbuffer[y * WIDTH + x] = prediction_array_as_u32(&prediction);
                 bucket_counts_y[*y] += 1.;
                 bucket_counts_x[*x] += 1.;
-				bucket_counts_z[f32::floor(world_z) as usize] += 1.
+				bucket_counts_z[f32::floor(world_z) as usize] += 1.;
+
+				bucket_counts_r[f32::floor(world_z) as usize] += prediction[0] as f64;
+				bucket_counts_g[f32::floor(world_z) as usize] += prediction[1] as f64;
+				bucket_counts_b[f32::floor(world_z) as usize] += prediction[2] as f64;
             }
 
 			log_as_hist(&mut writer, "screen_y", bucket_counts_y, iter);
 			log_as_hist(&mut writer, "screen_x", bucket_counts_x, iter);
 			log_as_hist(&mut writer, "world_z", bucket_counts_z, iter);
+			log_as_hist(&mut writer, "density_r", bucket_counts_r, iter);
+			log_as_hist(&mut writer, "density_g", bucket_counts_g, iter);
+			log_as_hist(&mut writer, "density_b", bucket_counts_b, iter);
 
             writer.add_image(
                 "prediction",
