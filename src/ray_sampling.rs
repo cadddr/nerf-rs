@@ -48,9 +48,9 @@ fn sample_points_along_ray(from: [f32; 3], to: [f32; 3]) -> Vec<[f32; 3]> {
         locations.push(t);
     }
 
-    let mut both = points.into_iter().zip(locations.into_iter()).collect::<Vec<([f32; 3], f32)>>();
-    both.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-    points = both.iter().map(|a| a.0).collect::<Vec<[f32; 3]>>();
+//    let mut both = points.into_iter().zip(locations.into_iter()).collect::<Vec<([f32; 3], f32)>>();
+//    both.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+//    points = both.iter().map(|a| a.0).collect::<Vec<[f32; 3]>>();
     return points;
 }
 

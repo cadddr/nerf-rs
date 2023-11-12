@@ -119,7 +119,7 @@ fn main() {
                 backbuffer[y * WIDTH + x] = prediction_array_as_u32(&prediction);
                 bucket_counts_y[*y] += 1.;
                 bucket_counts_x[*x] += 1.;
-				bucket_counts_z[(world_z / T_FAR) as usize] += 1.
+				bucket_counts_z[f32::floor(world_z) as usize] += 1.
             }
 
 			log_as_hist(&mut writer, "screen_y", bucket_counts_y, iter);
@@ -173,7 +173,7 @@ fn log_as_hist<const RANGE: usize>(
         bucket_counts.iter().sum::<f64>() as f64,
         bucket_counts.iter().sum::<f64>() as f64,
         bucket_counts.iter().map(|o| o * o).sum::<f64>() as f64,
-        &(0..RANGE as i64).map(|o| o as f64).collect::<Vec<f64>>(),
+        &(1..=RANGE as i64).map(|o| o as f64).collect::<Vec<f64>>(),
         &bucket_counts,
         iter,
     );
