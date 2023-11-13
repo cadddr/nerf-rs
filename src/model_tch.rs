@@ -6,7 +6,7 @@ pub const BATCH_SIZE: usize = 4096;
 
 pub const INDIM: usize = 3;
 const HIDDEN_NODES: i64 = 100;
-const LABELS: i64 = 4;
+const LABELS: usize = 4;
 
 // MLP
 fn net(vs: &nn::Path) -> Sequential {
@@ -46,7 +46,12 @@ fn net(vs: &nn::Path) -> Sequential {
             Default::default(),
         ))
         .add_fn(|xs| xs.relu())
-        .add(nn::linear(vs, HIDDEN_NODES, LABELS, Default::default()))
+        .add(nn::linear(
+            vs,
+            HIDDEN_NODES,
+            LABELS as i64,
+            Default::default(),
+        ))
 }
 
 pub struct TchModel {
@@ -70,17 +75,17 @@ impl TchModel {
         views: Vec<[f32; 3]>,
         points: Vec<[f32; 3]>,
     ) -> Tensor {
-        const DIM: usize = INDIM * BATCH_SIZE;
-        let coords_tensor = Tensor::of_slice(&array_vec_to_1d_array::<INDIM, DIM>(coords))
-            .view((i64::from(BATCH_SIZE as i32), INDIM as i64));
-        let p = self.net.forward(&coords_tensor.to(Device::Mps));
-        return p;
+        const INDIM_BATCHED: usize = INDIM * BATCH_SIZE;
+        let coords_flat = array_vec_to_1d_array::<INDIM, INDIM_BATCHED>(coords);
+        let coords_tensor = Tensor::of_slice(&coords_flat).view((BATCH_SIZE as i64, INDIM as i64));
+
+        self.net.forward(&coords_tensor.to(Device::Mps))
     }
 
-    pub fn step(&mut self, pred_tensor: Tensor, gold: Vec<[f32; 4]>) -> f32 {
-        const DIM: usize = 4 * BATCH_SIZE;
-        let gold_tensor = Tensor::of_slice(&array_vec_to_1d_array::<4, DIM>(gold))
-            .view((i64::from(BATCH_SIZE as i32), i64::from(4)));
+    pub fn step(&mut self, pred_tensor: Tensor, gold: Vec<[f32; LABELS]>) -> f32 {
+        const LABELS_BATCHED: usize = LABELS * BATCH_SIZE;
+        let gold_flat = array_vec_to_1d_array::<LABELS, LABELS_BATCHED>(gold);
+        let gold_tensor = Tensor::of_slice(&gold_flat).view((BATCH_SIZE as i64, LABELS as i64));
         let loss = mse_loss(&pred_tensor, &gold_tensor.to(Device::Mps));
         self.opt.backward_step(&loss);
 
@@ -91,7 +96,7 @@ impl TchModel {
         BATCH_SIZE
     }
 
-    pub fn get_predictions_as_array_vec(&self, predictions: &Tensor) -> Vec<[f32; 4]> {
+    pub fn get_predictions_as_array_vec(&self, predictions: &Tensor) -> Vec<[f32; LABELS]> {
         tensor_to_vec(&predictions)
     }
 
@@ -104,23 +109,23 @@ impl TchModel {
     }
 }
 
-fn array_vec_to_1d_array<const D: usize, const OUT: usize>(v: Vec<[f32; D]>) -> [f32; OUT] {
-    let mut array = [0f32; OUT];
+fn array_vec_to_1d_array<const INNER_DIM: usize, const OUT_DIM: usize>(v: Vec<[f32; INNER_DIM]>) -> [f32; OUT_DIM] {
+    let mut array = [0f32; OUT_DIM];
 
     for batch_index in 0..BATCH_SIZE {
-        for item_index in 0..D {
-            array[batch_index * D + item_index] = v[batch_index][item_index];
+        for item_index in 0..INNER_DIM {
+            array[batch_index * INNER_DIM + item_index] = v[batch_index][item_index];
         }
     }
     return array;
 }
 
-pub fn tensor_to_vec(a: &Tensor) -> Vec<[f32; 4]> {
+pub fn tensor_to_vec(a: &Tensor) -> Vec<[f32; LABELS]> {
     let mut v = Vec::new();
 
     for i in 0..a.size()[0] {
-        let mut r = [0f32; 4];
-        for j in 0..4 {
+        let mut r = [0f32; LABELS];
+        for j in 0..LABELS {
             r[j] = a.double_value(&[i as i64, j as i64]) as f32;
         }
         v.push(r);
