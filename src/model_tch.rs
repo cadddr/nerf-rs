@@ -109,7 +109,9 @@ impl TchModel {
     }
 }
 
-fn array_vec_to_1d_array<const INNER_DIM: usize, const OUT_DIM: usize>(v: Vec<[f32; INNER_DIM]>) -> [f32; OUT_DIM] {
+fn array_vec_to_1d_array<const INNER_DIM: usize, const OUT_DIM: usize>(
+    v: Vec<[f32; INNER_DIM]>,
+) -> [f32; OUT_DIM] {
     let mut array = [0f32; OUT_DIM];
 
     for batch_index in 0..BATCH_SIZE {
