@@ -97,7 +97,7 @@ impl TchModel {
     }
 
     pub fn get_predictions_as_array_vec(&self, predictions: &Tensor) -> Vec<[f32; LABELS]> {
-        tensor_to_vec(&predictions)
+        tensor_to_array_vec(&predictions)
     }
 
     pub fn save(&self, save_path: &str) {
@@ -122,7 +122,7 @@ fn array_vec_to_1d_array<const INNER_DIM: usize, const OUT_DIM: usize>(
     return array;
 }
 
-pub fn tensor_to_vec(a: &Tensor) -> Vec<[f32; LABELS]> {
+pub fn tensor_to_array_vec(a: &Tensor) -> Vec<[f32; LABELS]> {
     let mut v = Vec::new();
 
     for i in 0..a.size()[0] {
