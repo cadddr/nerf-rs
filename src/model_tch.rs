@@ -30,7 +30,10 @@ pub struct TchModel {
 
 impl TchModel {
 	pub fn new() -> TchModel {
-		let (vs, net, opt) = init_mlp();
+		let vs = nn::VarStore::new(Device::Mps);
+		let net = net(&vs.root());
+		let mut opt = nn::Adam::default().build(&vs, 5e-5).unwrap();
+
 		TchModel {
 			vs: vs,
 			net: net,
@@ -39,11 +42,19 @@ impl TchModel {
 	}
 	
 	pub fn step(&mut self, pred_tensor: Tensor, gold: Vec<[f32; 4]>) -> f32 {
-		step(&self.net, &mut self.opt, pred_tensor, gold)
+		const dim: usize = 4 * BATCH_SIZE;
+		let gold_tensor = Tensor::of_slice(&array_vec_to_1d_array::<4, dim>(gold)).view((i64::from(BATCH_SIZE as i32), i64::from(4)));
+		let loss = mse_loss(&pred_tensor, &gold_tensor.to(Device::Mps));
+		self.opt.backward_step(&loss);
+
+		return f32::try_from(&loss).unwrap();
 	}
 	
 	pub fn predict(&self, coords: Vec<[f32; INDIM]>, views: Vec<[f32; 3]>, points: Vec<[f32; 3]>) -> Tensor {
-		predict(&self.net, coords, views, points)
+		const dim: usize = INDIM * BATCH_SIZE;
+		let coords_tensor = Tensor::of_slice(&array_vec_to_1d_array::<INDIM, dim>(coords)).view((i64::from(BATCH_SIZE as i32), INDIM as i64));
+		let mut p = self.net.forward(&coords_tensor.to(Device::Mps));
+		return p;
 	}
 	
 	pub fn BATCH_SIZE(&self) -> usize {
@@ -63,31 +74,6 @@ impl TchModel {
 	}
 }
 
-
-pub fn init_mlp() -> (nn::VarStore, Sequential, Optimizer) {
-    let vs = nn::VarStore::new(Device::Mps);
-    let net = net(&vs.root());
-    let mut opt = nn::Adam::default().build(&vs, 5e-5).unwrap();
-	
-	return (vs, net, opt)
-}
-
-	
-pub fn step(net: &impl Module, opt: &mut Optimizer, pred_tensor: Tensor, gold: Vec<[f32; 4]>) -> f32{
-	const dim: usize = 4 * BATCH_SIZE;
-	let gold_tensor = Tensor::of_slice(&array_vec_to_1d_array::<4, dim>(gold)).view((i64::from(BATCH_SIZE as i32), i64::from(4)));
-	let loss = mse_loss(&pred_tensor, &gold_tensor.to(Device::Mps));
-    opt.backward_step(&loss);
-	
-	return f32::try_from(&loss).unwrap();
-}
-	
-pub fn predict(net: &impl Module, coords: Vec<[f32; INDIM]>, views: Vec<[f32; 3]>, points: Vec<[f32; 3]>) -> Tensor {
-	const dim: usize = INDIM * BATCH_SIZE;
-	let coords_tensor = Tensor::of_slice(&array_vec_to_1d_array::<INDIM, dim>(coords)).view((i64::from(BATCH_SIZE as i32), INDIM as i64));
-	let mut p = net.forward(&coords_tensor.to(Device::Mps));
-	return p;
-}
 
 fn array_vec_to_1d_array<const D:usize, const OUT:usize>(v: Vec<[f32; D]>) -> [f32; OUT] {
 	let mut array = [0f32; OUT];
