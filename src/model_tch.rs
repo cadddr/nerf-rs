@@ -2,9 +2,9 @@ use tch::{
     nn, nn::Module, nn::Optimizer, nn::OptimizerConfig, nn::Sequential, Device, Kind, Tensor,
 };
 
-pub const BATCH_SIZE: usize = 4096;
+pub const BATCH_SIZE: usize = 131077;
 
-pub const INDIM: usize = 3;
+pub const INDIM: usize = 4;
 const HIDDEN_NODES: i64 = 100;
 const LABELS: usize = 4;
 

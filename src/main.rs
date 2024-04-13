@@ -7,7 +7,7 @@
 //  fully-connected layer (using a ReLU activation and 128 channels) that output the view-dependent RGB color.
 //and using volume ren- dering techniques to composite these values into an image (c
 mod ray_sampling;
-use ray_sampling::{HEIGHT, WIDTH, T_FAR};
+use ray_sampling::{HEIGHT, T_FAR, WIDTH};
 
 mod image_loading;
 
@@ -36,6 +36,8 @@ struct Cli {
     #[arg(long, default_value = "spheres/image-0.png")]
     img_path: String,
 
+    //    #[arg(long, default_value_t = vec!["spheres/image-0.png".to_string(), "spheres/image-89.png".to_string()])]
+    //    img_paths: Vec<String>,
     #[arg(long, default_value = "logs")]
     log_dir: String,
 
@@ -73,8 +75,13 @@ fn main() {
 
     let args = Cli::parse();
 
-    let img = image_loading::load_image_as_array(&args.img_path);
-    println!("image {:?} pixels", img.len());
+    //    let img = image_loading::load_image_as_array(&args.img_path);
+    //    println!("image {:?} pixels", img.len());
+
+    let imgs = image_loading::load_multiple_images_as_arrays(vec![
+        "spheres/image-0.png",
+        "spheres/image-89.png",
+    ]); //TODO:
 
     let mut backbuffer = [0; WIDTH * HEIGHT];
 
@@ -92,50 +99,66 @@ fn main() {
         //predict emittance and density
         let (indices, views, points) =
             ray_sampling::sample_points_tensor_along_view_directions(model.BATCH_SIZE());
-        let gold: Vec<[f32; 4]> = indices.iter().map(|[y, x]| img[y * WIDTH + x]).collect();
-        let screen_coords: Vec<[f32; model_tch::INDIM]> = indices
+        let gold: Vec<[f32; 4]> = indices
             .iter()
-            .map(input_transforms::scale_by_screen_size_and_fourier::<3>)
+            .map(|[y, x]| imgs[0][y * WIDTH + x])
             .collect();
+        if iter % 2 != 0 {
+            let gold: Vec<[f32; 4]> = indices
+                .iter()
+                .map(|[y, x]| imgs[1][y * WIDTH + x])
+                .collect();
+        }
+        //        let screen_coords: Vec<[f32; model_tch::INDIM]> = indices
+        //            .iter()
+        //            .map(input_transforms::scale_by_screen_size_and_fourier::<3>)
+        //            .collect();
 
-        let predictions = model.predict(points.clone(), views.clone(), screen_coords.clone());
+        let predictions = model.predict(
+            points
+                .iter()
+                .map(|[x, y, z]| [*x, *y, *z, (iter % 2) as f32 - 0.5])
+                .collect(),
+            views.clone(),
+            points.clone(),
+        );
 
         if iter % args.eval_steps == 0 {
             // refresh backbuffer every few steps
-            if (batch_losses.len() * model.BATCH_SIZE()) % (img.len() * args.refresh_epochs) == 0 {
-                backbuffer = [0; WIDTH * HEIGHT];
-            }
+            //            if (batch_losses.len() * model.BATCH_SIZE()) % (img.len() * args.refresh_epochs) == 0 {
+            backbuffer = [0; WIDTH * HEIGHT];
+            //            }
 
             let mut bucket_counts_y: [f64; HEIGHT] = [0.; HEIGHT];
             let mut bucket_counts_x: [f64; WIDTH] = [0.; WIDTH];
-			let mut bucket_counts_z: [f64; T_FAR as usize] = [0.; T_FAR as usize];
-			let mut bucket_counts_r: [f64; T_FAR as usize] = [0.; T_FAR as usize];
-			let mut bucket_counts_g: [f64; T_FAR as usize] = [0.; T_FAR as usize];
-			let mut bucket_counts_b: [f64; T_FAR as usize] = [0.; T_FAR as usize];
-
+            let mut bucket_counts_z: [f64; T_FAR as usize] = [0.; T_FAR as usize];
+            let mut bucket_counts_r: [f64; T_FAR as usize] = [0.; T_FAR as usize];
+            let mut bucket_counts_g: [f64; T_FAR as usize] = [0.; T_FAR as usize];
+            let mut bucket_counts_b: [f64; T_FAR as usize] = [0.; T_FAR as usize];
 
             // write batch predictions to backbuffer to display until next eval
-			for (([y, x], prediction), [world_x, world_y, world_z]) in indices
+            for (([y, x], prediction), [world_x, world_y, world_z]) in indices
                 .iter()
                 .zip(model.get_predictions_as_array_vec(&predictions).into_iter())
-				.zip(points).into_iter()
+                .zip(points)
+                .into_iter()
             {
                 backbuffer[y * WIDTH + x] = prediction_array_as_u32(&prediction);
                 bucket_counts_y[*y] += 1.;
                 bucket_counts_x[*x] += 1.;
-				bucket_counts_z[f32::floor(world_z) as usize] += 1.;
+                bucket_counts_z[f32::floor(world_z) as usize] += 1.;
 
-				bucket_counts_r[f32::floor(world_z) as usize] += prediction[0] as f64;
-				bucket_counts_g[f32::floor(world_z) as usize] += prediction[1] as f64;
-				bucket_counts_b[f32::floor(world_z) as usize] += prediction[2] as f64;
+                bucket_counts_r[f32::floor(world_z) as usize] += prediction[0] as f64;
+                bucket_counts_g[f32::floor(world_z) as usize] += prediction[1] as f64;
+                bucket_counts_b[f32::floor(world_z) as usize] += prediction[2] as f64;
             }
 
-			log_as_hist(&mut writer, "screen_y", bucket_counts_y, iter);
-			log_as_hist(&mut writer, "screen_x", bucket_counts_x, iter);
-			log_as_hist(&mut writer, "world_z", bucket_counts_z, iter);
-			log_as_hist(&mut writer, "density_r", bucket_counts_r, iter);
-			log_as_hist(&mut writer, "density_g", bucket_counts_g, iter);
-			log_as_hist(&mut writer, "density_b", bucket_counts_b, iter);
+            log_as_hist(&mut writer, "screen_y", bucket_counts_y, iter);
+            log_as_hist(&mut writer, "screen_x", bucket_counts_x, iter);
+            log_as_hist(&mut writer, "world_z", bucket_counts_z, iter);
+            log_as_hist(&mut writer, "density_r", bucket_counts_r, iter);
+            log_as_hist(&mut writer, "density_g", bucket_counts_g, iter);
+            log_as_hist(&mut writer, "density_b", bucket_counts_b, iter);
 
             writer.add_image(
                 "prediction",
@@ -160,7 +183,7 @@ fn main() {
             .lineplot(&Shape::Continuous(Box::new(|x| batch_losses[x as usize])))
             .display();
 
-        draw_to_screen(buffer, &backbuffer, &img);
+        draw_to_screen(buffer, &backbuffer); //, &img);
 
         iter = iter + 1;
         if iter > args.num_iter {
@@ -190,17 +213,20 @@ fn log_as_hist<const RANGE: usize>(
     );
 }
 
-fn draw_to_screen(buffer: &mut Vec<u32>, backbuffer: &[u32; WIDTH * HEIGHT], img: &Vec<[f32; 4]>) {
+fn draw_to_screen(
+    buffer: &mut Vec<u32>,
+    backbuffer: &[u32; WIDTH * HEIGHT], //img: &Vec<[f32; 4]>
+) {
     // draw from either backbuffer or gold image
     for y in 0..HEIGHT {
         for x in 0..WIDTH {
             if DEBUG {
-                let gold = img[y * WIDTH + x];
-                buffer[y * WIDTH + x] = from_u8_rgb(
-                    (gold[0] * 255.) as u8,
-                    (gold[1] * 255.) as u8,
-                    (gold[2] * 255.) as u8,
-                );
+                //                let gold = img[y * WIDTH + x];
+                //                buffer[y * WIDTH + x] = from_u8_rgb(
+                //                    (gold[0] * 255.) as u8,
+                //                    (gold[1] * 255.) as u8,
+                //                    (gold[2] * 255.) as u8,
+                //                );
             } else {
                 buffer[y * WIDTH + x] = backbuffer[y * WIDTH + x];
             }
