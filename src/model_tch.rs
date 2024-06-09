@@ -2,7 +2,7 @@ use tch::{
     nn, nn::Module, nn::Optimizer, nn::OptimizerConfig, nn::Sequential, Device, Kind, Tensor,
 };
 
-pub const BATCH_SIZE: usize = 131077;
+pub const BATCH_SIZE: usize = 1;
 
 pub const INDIM: usize = 4;
 const HIDDEN_NODES: i64 = 100;
@@ -72,8 +72,6 @@ impl TchModel {
     pub fn predict(
         &self,
         coords: Vec<[f32; INDIM]>,
-        views: Vec<[f32; 3]>,
-        points: Vec<[f32; 3]>,
     ) -> Tensor {
         const INDIM_BATCHED: usize = INDIM * BATCH_SIZE;
         let coords_flat = array_vec_to_1d_array::<INDIM, INDIM_BATCHED>(coords);

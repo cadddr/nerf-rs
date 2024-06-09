@@ -35,9 +35,9 @@ const DEBUG: bool = false;
 struct Cli {
     #[arg(long, default_value = "spheres/image-0.png")]
     img_path: String,
-
     //    #[arg(long, default_value_t = vec!["spheres/image-0.png".to_string(), "spheres/image-89.png".to_string()])]
     //    img_paths: Vec<String>,
+
     #[arg(long, default_value = "logs")]
     log_dir: String,
 
@@ -50,18 +50,13 @@ struct Cli {
     #[arg(long, default_value_t = 50000)]
     num_iter: usize,
 
-    #[arg(long, default_value_t = 500)]
+    #[arg(long, default_value_t = 1)]
     eval_steps: usize,
 
     #[arg(long, default_value_t = 100)]
     refresh_epochs: usize,
 }
 
-// TODO:
-/*
-- sample highest error samples
-- predict shading as different channels
-*/
 
 fn main() {
     /*
@@ -97,18 +92,8 @@ fn main() {
     let mut batch_losses: Vec<f32> = Vec::new();
     let update_window_buffer = |buffer: &mut Vec<u32>| {
         //predict emittance and density
-        let (indices, views, points) =
-            ray_sampling::sample_points_tensor_along_view_directions(model.BATCH_SIZE());
-        let gold: Vec<[f32; 4]> = indices
-            .iter()
-            .map(|[y, x]| imgs[0][y * WIDTH + x])
-            .collect();
-        if iter % 2 != 0 {
-            let gold: Vec<[f32; 4]> = indices
-                .iter()
-                .map(|[y, x]| imgs[1][y * WIDTH + x])
-                .collect();
-        }
+        let (indices, views, points) = ray_sampling::sample_points_tensor_along_view_directions(model.BATCH_SIZE());
+
         //        let screen_coords: Vec<[f32; model_tch::INDIM]> = indices
         //            .iter()
         //            .map(input_transforms::scale_by_screen_size_and_fourier::<3>)
@@ -119,8 +104,6 @@ fn main() {
                 .iter()
                 .map(|[x, y, z]| [*x, *y, *z, (iter % 2) as f32 - 0.5])
                 .collect(),
-            views.clone(),
-            points.clone(),
         );
 
         if iter % args.eval_steps == 0 {
@@ -129,8 +112,10 @@ fn main() {
             backbuffer = [0; WIDTH * HEIGHT];
             //            }
 
-            let mut bucket_counts_y: [f64; HEIGHT] = [0.; HEIGHT];
-            let mut bucket_counts_x: [f64; WIDTH] = [0.; WIDTH];
+            let mut bucket_counts_sy: [f64; HEIGHT] = [0.; HEIGHT];
+            let mut bucket_counts_sx: [f64; WIDTH] = [0.; WIDTH];
+            let mut bucket_counts_y: [f64; 400 as usize] = [0.; 400 as usize];
+            let mut bucket_counts_x: [f64; 400 as usize] = [0.; 400 as usize];
             let mut bucket_counts_z: [f64; T_FAR as usize] = [0.; T_FAR as usize];
             let mut bucket_counts_r: [f64; T_FAR as usize] = [0.; T_FAR as usize];
             let mut bucket_counts_g: [f64; T_FAR as usize] = [0.; T_FAR as usize];
@@ -144,8 +129,10 @@ fn main() {
                 .into_iter()
             {
                 backbuffer[y * WIDTH + x] = prediction_array_as_u32(&prediction);
-                bucket_counts_y[*y] += 1.;
-                bucket_counts_x[*x] += 1.;
+                bucket_counts_sy[*y] += 1.;
+                bucket_counts_sx[*x] += 1.;
+                bucket_counts_y[f32::floor(100. * world_y) as usize] += 1.;
+                bucket_counts_x[f32::floor(100. * world_x) as usize] += 1.;
                 bucket_counts_z[f32::floor(world_z) as usize] += 1.;
 
                 bucket_counts_r[f32::floor(world_z) as usize] += prediction[0] as f64;
@@ -153,8 +140,10 @@ fn main() {
                 bucket_counts_b[f32::floor(world_z) as usize] += prediction[2] as f64;
             }
 
-            log_as_hist(&mut writer, "screen_y", bucket_counts_y, iter);
-            log_as_hist(&mut writer, "screen_x", bucket_counts_x, iter);
+            log_as_hist(&mut writer, "screen_y", bucket_counts_sy, iter);
+            log_as_hist(&mut writer, "screen_x", bucket_counts_sx, iter);
+            log_as_hist(&mut writer, "world_y", bucket_counts_y, iter);
+            log_as_hist(&mut writer, "world_x", bucket_counts_x, iter);
             log_as_hist(&mut writer, "world_z", bucket_counts_z, iter);
             log_as_hist(&mut writer, "density_r", bucket_counts_r, iter);
             log_as_hist(&mut writer, "density_g", bucket_counts_g, iter);
@@ -171,6 +160,18 @@ fn main() {
                 iter,
             );
             model.save(&format!("{}/checkpoint-{}-{}.ot", args.save_dir, ts, iter));
+        }
+
+        let gold: Vec<[f32; 4]> = indices
+            .iter()
+            .map(|[y, x]| imgs[0][y * WIDTH + x])
+            .collect();
+
+        if iter % 2 != 0 {
+            let gold: Vec<[f32; 4]> = indices
+                .iter()
+                .map(|[y, x]| imgs[1][y * WIDTH + x])
+                .collect();
         }
 
         let loss: f32 = model.step(predictions, gold);
