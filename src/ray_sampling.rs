@@ -1,4 +1,4 @@
-use vecmath::{vec3_add, vec3_sub, vec3_normalized, vec3_dot, vec3_cross, vec3_len, vec3_scale};
+use vecmath::{vec3_add, vec3_sub, vec3_normalized, vec3_dot, vec3_cross, vec3_len, vec3_scale, col_mat4x3_transform_pos3, row_mat3x4_transform_pos3};
 use rand::random;
 
 const HITHER: f32 = 0.05;
@@ -14,6 +14,21 @@ pub const T_FAR: f32 = 10.;
 
 pub const WIDTH: usize = 512;
 pub const HEIGHT: usize = 512;
+
+fn rotate(vec: [f32; 3], angle: f32) -> [f32; 3] {
+    let c = f32::cos(angle);
+    let s = f32::sin(angle);
+    let rot = [
+        [c, 0., s, 0.],
+        [0., 1.,  0., 0.],
+        [-s, 0.,  c, 0.],
+//        [0., 0.,  0., 1.]
+    ];
+
+    row_mat3x4_transform_pos3(rot, vec)
+//    from = multvec3(rot, from.sub(at)).add(at);
+
+}
 
 fn screen_space_to_world_space(x: f32, y: f32, width: f32, height: f32) -> [f32; 3] {
     let off: f32 = f32::tan(FOV / 2.) * HITHER;
@@ -95,17 +110,24 @@ pub fn sample_points_batch_along_view_directions(batch_size: usize) -> (Vec<[usi
 }
 
 use tch::{Tensor, kind, Kind};
-pub fn sample_points_tensor_along_view_directions(batch_size: usize) -> (Vec<[usize; 2]>, Vec<[f32; 3]>, Vec<[f32; 3]>) {
+pub fn sample_points_tensor_along_view_directions(batch_size: usize, angle: f32) -> (Vec<[usize; 2]>, Vec<[f32; 3]>, Vec<[f32; 3]>) {
 	let mut coord_y: Vec<i64> = Vec::try_from(Tensor::randint(HEIGHT as i64, &[batch_size as i64], kind::FLOAT_CPU)).unwrap(); 
 	let mut coord_x: Vec<i64> = Vec::try_from(Tensor::randint(WIDTH as i64, &[batch_size as i64], kind::FLOAT_CPU)).unwrap(); 
 	
 	let mut indices: Vec<[usize; 2]> = coord_y.iter().zip(coord_x.iter()).map(|(y, x)|[*y as usize, *x as usize]).collect();
     let mut views: Vec<[f32; 3]> = Vec::new(); // TODO:
-    let mut points: Vec<[f32; 3]> = indices.iter().map(|[y, x]| screen_space_to_world_space(*x as f32, *y as f32, WIDTH as f32, HEIGHT as f32)).map(|to| sample_points_along_ray(FROM, to)[0]).collect();
+    let mut points: Vec<[f32; 3]> = indices.iter().map(|[y, x]| screen_space_to_world_space(*x as f32, *y as f32, WIDTH as f32, HEIGHT as f32)).map(|to| rotate(sample_points_along_ray(FROM, to)[0], angle)).collect();
 	
 	return (indices, views, points);
 }
 
+#[test]
+fn point_rotates_to_90() {
+    let angle = std::f32::consts::PI / 2.;
+    let vec = [1., 2., 3.];
+    println!("{:?}", rotate(vec, angle));
+    assert!(rotate(vec, angle) == [3.0, 2.0, -1.0000001])
+}
 
 #[test]
 fn ray_direction_within_fov() {

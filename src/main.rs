@@ -92,7 +92,12 @@ fn main() {
     let mut batch_losses: Vec<f32> = Vec::new();
     let update_window_buffer = |buffer: &mut Vec<u32>| {
         //predict emittance and density
-        let (indices, views, points) = ray_sampling::sample_points_tensor_along_view_directions(model.BATCH_SIZE());
+
+        let mut angle = 0.;
+        if iter % 2 != 0 {
+            angle = std::f32::consts::PI / 2.;
+        }
+        let (indices, views, points) = ray_sampling::sample_points_tensor_along_view_directions(model.BATCH_SIZE(), angle);
 
         //        let screen_coords: Vec<[f32; model_tch::INDIM]> = indices
         //            .iter()
@@ -114,8 +119,8 @@ fn main() {
 
             let mut bucket_counts_sy: [f64; HEIGHT] = [0.; HEIGHT];
             let mut bucket_counts_sx: [f64; WIDTH] = [0.; WIDTH];
-            let mut bucket_counts_y: [f64; 400 as usize] = [0.; 400 as usize];
-            let mut bucket_counts_x: [f64; 400 as usize] = [0.; 400 as usize];
+            let mut bucket_counts_y: [f64; 10000 as usize] = [0.; 10000 as usize];
+            let mut bucket_counts_x: [f64; 10000 as usize] = [0.; 10000 as usize];
             let mut bucket_counts_z: [f64; T_FAR as usize] = [0.; T_FAR as usize];
             let mut bucket_counts_r: [f64; T_FAR as usize] = [0.; T_FAR as usize];
             let mut bucket_counts_g: [f64; T_FAR as usize] = [0.; T_FAR as usize];
@@ -131,8 +136,8 @@ fn main() {
                 backbuffer[y * WIDTH + x] = prediction_array_as_u32(&prediction);
                 bucket_counts_sy[*y] += 1.;
                 bucket_counts_sx[*x] += 1.;
-                bucket_counts_y[f32::floor(100. * world_y) as usize] += 1.;
-                bucket_counts_x[f32::floor(100. * world_x) as usize] += 1.;
+                bucket_counts_y[f32::floor(1000. * world_y) as usize] += 1.;
+                bucket_counts_x[f32::floor(1000. * world_x) as usize] += 1.;
                 bucket_counts_z[f32::floor(world_z) as usize] += 1.;
 
                 bucket_counts_r[f32::floor(world_z) as usize] += prediction[0] as f64;
