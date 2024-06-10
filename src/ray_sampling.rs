@@ -8,7 +8,7 @@ const UP: [f32; 3] =   [0., 1.,  0.];
 const FROM: [f32; 3] = [0., 0., -1.];
 const AT: [f32; 3] =   [0., 0.,  1.];
 
-const NUM_SAMPLES: usize = 1;
+pub const NUM_SAMPLES: usize = 64;
 const RAY_PROB: f32 = 200. /(512. * 512.);
 pub const T_FAR: f32 = 10.;
 
@@ -110,13 +110,18 @@ pub fn sample_points_batch_along_view_directions(batch_size: usize) -> (Vec<[usi
 }
 
 use tch::{Tensor, kind, Kind};
-pub fn sample_points_tensor_along_view_directions(batch_size: usize, angle: f32) -> (Vec<[usize; 2]>, Vec<[f32; 3]>, Vec<[f32; 3]>) {
+pub fn sample_points_tensor_along_view_directions(batch_size: usize, angle: f32) -> (Vec<[usize; 2]>, Vec<[f32; 3]>, Vec<Vec<[f32; 3]>>) {
 	let mut coord_y: Vec<i64> = Vec::try_from(Tensor::randint(HEIGHT as i64, &[batch_size as i64], kind::FLOAT_CPU)).unwrap(); 
 	let mut coord_x: Vec<i64> = Vec::try_from(Tensor::randint(WIDTH as i64, &[batch_size as i64], kind::FLOAT_CPU)).unwrap(); 
 	
 	let mut indices: Vec<[usize; 2]> = coord_y.iter().zip(coord_x.iter()).map(|(y, x)|[*y as usize, *x as usize]).collect();
     let mut views: Vec<[f32; 3]> = Vec::new(); // TODO:
-    let mut points: Vec<[f32; 3]> = indices.iter().map(|[y, x]| screen_space_to_world_space(*x as f32, *y as f32, WIDTH as f32, HEIGHT as f32)).map(|to| rotate(sample_points_along_ray(FROM, to)[0], angle)).collect();
+    let mut points: Vec<Vec<[f32; 3]>> = indices.iter()
+        .map(|[y, x]| screen_space_to_world_space(*x as f32, *y as f32, WIDTH as f32, HEIGHT as f32))
+        .map(|to| sample_points_along_ray(FROM, to).iter()
+            .map(|pt| rotate(*pt, angle)).collect()
+        )
+        .collect();
 	
 	return (indices, views, points);
 }

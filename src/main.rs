@@ -7,7 +7,7 @@
 //  fully-connected layer (using a ReLU activation and 128 channels) that output the view-dependent RGB color.
 //and using volume ren- dering techniques to composite these values into an image (c
 mod ray_sampling;
-use ray_sampling::{HEIGHT, T_FAR, WIDTH};
+use ray_sampling::{HEIGHT, NUM_SAMPLES, T_FAR, WIDTH};
 
 mod image_loading;
 
@@ -37,7 +37,6 @@ struct Cli {
     img_path: String,
     //    #[arg(long, default_value_t = vec!["spheres/image-0.png".to_string(), "spheres/image-89.png".to_string()])]
     //    img_paths: Vec<String>,
-
     #[arg(long, default_value = "logs")]
     log_dir: String,
 
@@ -50,13 +49,12 @@ struct Cli {
     #[arg(long, default_value_t = 50000)]
     num_iter: usize,
 
-    #[arg(long, default_value_t = 1)]
+    #[arg(long, default_value_t = 101)]
     eval_steps: usize,
 
     #[arg(long, default_value_t = 100)]
     refresh_epochs: usize,
 }
-
 
 fn main() {
     /*
@@ -97,7 +95,10 @@ fn main() {
         if iter % 2 != 0 {
             angle = std::f32::consts::PI / 2.;
         }
-        let (indices, views, points) = ray_sampling::sample_points_tensor_along_view_directions(model.BATCH_SIZE(), angle);
+        let (indices, views, points) = ray_sampling::sample_points_tensor_along_view_directions(
+            model.BATCH_SIZE() / NUM_SAMPLES,
+            angle,
+        );
 
         //        let screen_coords: Vec<[f32; model_tch::INDIM]> = indices
         //            .iter()
@@ -105,10 +106,9 @@ fn main() {
         //            .collect();
 
         let predictions = model.predict(
-            points
-                .iter()
-                .map(|[x, y, z]| [*x, *y, *z, (iter % 2) as f32 - 0.5])
-                .collect(),
+            points, //                .iter()
+                   //                .map(|[x, y, z]| [*x, *y, *z, (iter % 2) as f32 - 0.5])
+                   //                .collect(),
         );
 
         if iter % args.eval_steps == 0 {
@@ -127,22 +127,24 @@ fn main() {
             let mut bucket_counts_b: [f64; T_FAR as usize] = [0.; T_FAR as usize];
 
             // write batch predictions to backbuffer to display until next eval
-            for (([y, x], prediction), [world_x, world_y, world_z]) in indices
+            for
+                ([y, x], prediction) //[world_x, world_y, world_z]
+            in indices
                 .iter()
                 .zip(model.get_predictions_as_array_vec(&predictions).into_iter())
-                .zip(points)
+                // .zip(points)
                 .into_iter()
             {
                 backbuffer[y * WIDTH + x] = prediction_array_as_u32(&prediction);
                 bucket_counts_sy[*y] += 1.;
                 bucket_counts_sx[*x] += 1.;
-                bucket_counts_y[f32::floor(1000. * world_y) as usize] += 1.;
-                bucket_counts_x[f32::floor(1000. * world_x) as usize] += 1.;
-                bucket_counts_z[f32::floor(world_z) as usize] += 1.;
+                // bucket_counts_y[f32::floor(1000. * world_y) as usize] += 1.;
+                // bucket_counts_x[f32::floor(1000. * world_x) as usize] += 1.;
+                // bucket_counts_z[f32::floor(world_z) as usize] += 1.;
 
-                bucket_counts_r[f32::floor(world_z) as usize] += prediction[0] as f64;
-                bucket_counts_g[f32::floor(world_z) as usize] += prediction[1] as f64;
-                bucket_counts_b[f32::floor(world_z) as usize] += prediction[2] as f64;
+                // bucket_counts_r[f32::floor(world_z) as usize] += prediction[0] as f64;
+                // bucket_counts_g[f32::floor(world_z) as usize] += prediction[1] as f64;
+                // bucket_counts_b[f32::floor(world_z) as usize] += prediction[2] as f64;
             }
 
             log_as_hist(&mut writer, "screen_y", bucket_counts_sy, iter);
