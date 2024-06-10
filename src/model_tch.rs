@@ -2,8 +2,8 @@ use tch::{
     nn, nn::Module, nn::Optimizer, nn::OptimizerConfig, nn::Sequential, Device, Kind, Tensor,
 };
 
-pub const NUM_RAYS: usize = 65536;
-pub const NUM_POINTS: usize = 4;
+pub const NUM_RAYS: usize = 16384;
+pub const NUM_POINTS: usize = 2;
 pub const BATCH_SIZE: usize = NUM_RAYS * NUM_POINTS;
 
 pub const INDIM: usize = 3;
@@ -79,7 +79,7 @@ impl TchModel {
         let mut point_density_predictions = self.net.forward(&coords_tensor.to(Device::Mps));
         point_density_predictions = point_density_predictions
             .view((NUM_RAYS as i64, NUM_POINTS as i64, LABELS as i64))
-            .mean_dim(Some([1i64].as_slice()), false, Kind::Float);
+            .sum_dim_intlist(Some([1i64].as_slice()), false, Kind::Float);
         return point_density_predictions;
     }
 

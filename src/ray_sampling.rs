@@ -12,12 +12,10 @@ const UP: [f32; 3] = [0., 1., 0.];
 const FROM: [f32; 3] = [0., 0., -1.];
 const AT: [f32; 3] = [0., 0., 1.];
 
-// pub const NUM_SAMPLES: usize = 64;
-const RAY_PROB: f32 = 200. / (512. * 512.);
 pub const T_FAR: f32 = 10.;
 
-pub const WIDTH: usize = 512;
-pub const HEIGHT: usize = 512;
+pub const WIDTH: usize = 128;
+pub const HEIGHT: usize = 128;
 
 fn rotate(vec: [f32; 3], angle: f32) -> [f32; 3] {
     let c = f32::cos(angle);

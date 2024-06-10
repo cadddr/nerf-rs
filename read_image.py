@@ -12,7 +12,7 @@ def make_image(data, outputname, size=(1, 1), dpi=128):
     plt.set_cmap('hot')
     ax.imshow(data, aspect='equal')
     plt.savefig(outputname, dpi=dpi)
-def read_image(infilename=DATA_PATH, width=128, height=128, outfilename='image'):
+def read_image(infilename=DATA_PATH, width=128, height=128, outfilename='spheres-128-no-shading/image'):
     with open(infilename, 'rb') as file:
         data = file.read()
 
@@ -27,3 +27,5 @@ def read_image(infilename=DATA_PATH, width=128, height=128, outfilename='image')
         # plt.axis('off')
         # plt.savefig(f'{outfilename}-{i}', bbox_inches='tight')
         # plt.close()
+if __name__ == '__main__':
+    read_image()

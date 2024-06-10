@@ -25,7 +25,7 @@ use textplots::{Chart, Plot, Shape};
 
 use clap::Parser;
 
-use std::time::SystemTime;
+use std::{f32::consts::PI, time::SystemTime};
 
 use tensorboard_rs::summary_writer::SummaryWriter;
 
@@ -72,8 +72,25 @@ fn main() {
     //    println!("image {:?} pixels", img.len());
 
     let imgs = image_loading::load_multiple_images_as_arrays(vec![
-        "spheres/image-0.png",
-        "spheres/image-0.png",
+        "spheres-128-no-shading/image-0.png",
+        "spheres-128-no-shading/image-4.png",
+        "spheres-128-no-shading/image-9.png",
+        "spheres-128-no-shading/image-14.png",
+        "spheres-128-no-shading/image-19.png",
+        "spheres-128-no-shading/image-24.png",
+        "spheres-128-no-shading/image-29.png",
+        "spheres-128-no-shading/image-34.png",
+        "spheres-128-no-shading/image-39.png",
+        "spheres-128-no-shading/image-44.png",
+        "spheres-128-no-shading/image-49.png",
+        "spheres-128-no-shading/image-54.png",
+        "spheres-128-no-shading/image-59.png",
+        "spheres-128-no-shading/image-64.png",
+        "spheres-128-no-shading/image-69.png",
+        "spheres-128-no-shading/image-74.png",
+        "spheres-128-no-shading/image-79.png",
+        "spheres-128-no-shading/image-84.png",
+        "spheres-128-no-shading/image-89.png",
     ]); //TODO:
 
     let mut backbuffer = [0; WIDTH * HEIGHT];
@@ -90,16 +107,20 @@ fn main() {
     let mut batch_losses: Vec<f32> = Vec::new();
     let update_window_buffer = |buffer: &mut Vec<u32>| {
         //predict emittance and density
+        let n = iter % imgs.len();
 
-        let mut angle = 0.;
-        if iter % 2 != 0 {
-            angle = std::f32::consts::PI / 2.;
-        }
+        let angle = (n as f32 / imgs.len() as f32) * std::f32::consts::PI / 2.;
+
         let (indices, views, points) = ray_sampling::sample_points_tensor_along_view_directions(
             model_tch::NUM_RAYS,
             model_tch::NUM_POINTS,
-            0.,
+            angle,
         );
+
+        let gold: Vec<[f32; 4]> = indices
+            .iter()
+            .map(|[y, x]| imgs[n][y * WIDTH + x])
+            .collect();
 
         //        let screen_coords: Vec<[f32; model_tch::INDIM]> = indices
         //            .iter()
@@ -148,6 +169,7 @@ fn main() {
                 // bucket_counts_b[f32::floor(world_z) as usize] += prediction[2] as f64;
             }
 
+            writer.add_scalar("angle", 180. * angle / std::f32::consts::PI, iter);
             log_as_hist(&mut writer, "screen_y", bucket_counts_sy, iter);
             log_as_hist(&mut writer, "screen_x", bucket_counts_sx, iter);
             log_as_hist(&mut writer, "world_y", bucket_counts_y, iter);
@@ -170,21 +192,14 @@ fn main() {
             model.save(&format!("{}/checkpoint-{}-{}.ot", args.save_dir, ts, iter));
         }
 
-        let gold: Vec<[f32; 4]> = indices
-            .iter()
-            .map(|[y, x]| imgs[0][y * WIDTH + x])
-            .collect();
-
-        if iter % 2 != 0 {
-            let gold: Vec<[f32; 4]> = indices
-                .iter()
-                .map(|[y, x]| imgs[1][y * WIDTH + x])
-                .collect();
-        }
-
         let loss: f32 = model.step(predictions, gold);
         // loss & plotting
-        println!("iter={}, loss={:.16}", iter, loss);
+        println!(
+            "iter={}, angle={:.4} loss={:.16}",
+            iter,
+            180. * angle / std::f32::consts::PI,
+            loss
+        );
         writer.add_scalar("loss", loss, iter);
 
         batch_losses.push(loss);
