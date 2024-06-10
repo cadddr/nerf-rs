@@ -2,7 +2,9 @@ use tch::{
     nn, nn::Module, nn::Optimizer, nn::OptimizerConfig, nn::Sequential, Device, Kind, Tensor,
 };
 
-pub const BATCH_SIZE: usize = 1024 * 64;
+pub const NUM_RAYS: usize = 65536;
+pub const NUM_POINTS: usize = 4;
+pub const BATCH_SIZE: usize = NUM_RAYS * NUM_POINTS;
 
 pub const INDIM: usize = 3;
 const HIDDEN_NODES: i64 = 100;
@@ -73,38 +75,22 @@ impl TchModel {
         const INDIM_BATCHED: usize = INDIM * BATCH_SIZE;
         let coords_flat =
             array_vec_to_1d_array::<INDIM, INDIM_BATCHED>(array_vec_vec_to_array_vec(coords));
-        println!("INDIM_BATCHED {:?}", INDIM_BATCHED);
         let coords_tensor = Tensor::of_slice(&coords_flat).view((BATCH_SIZE as i64, INDIM as i64));
-        // println!("{:?}", coords_tensor.size());
         let mut point_density_predictions = self.net.forward(&coords_tensor.to(Device::Mps));
-        // println!("{:?}", point_density_predictions.size());
         point_density_predictions = point_density_predictions
-            .view((1024 as i64, 64 as i64, LABELS as i64))
+            .view((NUM_RAYS as i64, NUM_POINTS as i64, LABELS as i64))
             .mean_dim(Some([1i64].as_slice()), false, Kind::Float);
-        // println!("{:?}", point_density_predictions.size());
         return point_density_predictions;
     }
 
     pub fn step(&mut self, pred_tensor: Tensor, gold: Vec<[f32; LABELS]>) -> f32 {
-        println!(
-            "step pred_tensor {:?} gold {:?}",
-            pred_tensor.size(),
-            gold.len()
-        );
-        const LABELS_BATCHED: usize = LABELS * BATCH_SIZE / 64;
+        const LABELS_BATCHED: usize = LABELS * NUM_RAYS;
         let gold_flat = array_vec_to_1d_array::<LABELS, LABELS_BATCHED>(gold);
-        println!("gold_flat {:?}", gold_flat.len());
-        let gold_tensor =
-            Tensor::of_slice(&gold_flat).view(((BATCH_SIZE / 64) as i64, LABELS as i64));
-        println!("gold_tensor {:?}", gold_tensor.size());
+        let gold_tensor = Tensor::of_slice(&gold_flat).view((NUM_RAYS as i64, LABELS as i64));
         let loss = mse_loss(&pred_tensor, &gold_tensor.to(Device::Mps));
         self.opt.backward_step(&loss);
 
         return f32::try_from(&loss).unwrap();
-    }
-
-    pub fn BATCH_SIZE(&self) -> usize {
-        BATCH_SIZE
     }
 
     pub fn get_predictions_as_array_vec(&self, predictions: &Tensor) -> Vec<[f32; LABELS]> {
@@ -121,7 +107,6 @@ impl TchModel {
 }
 
 fn array_vec_vec_to_array_vec(vv: Vec<Vec<[f32; INDIM]>>) -> Vec<[f32; INDIM]> {
-    println!("vec vec {:?}", vv.len());
     let mut v = Vec::new();
     for subvec in vv {
         for el in subvec {
@@ -134,11 +119,9 @@ fn array_vec_vec_to_array_vec(vv: Vec<Vec<[f32; INDIM]>>) -> Vec<[f32; INDIM]> {
 fn array_vec_to_1d_array<const INNER_DIM: usize, const OUT_DIM: usize>(
     v: Vec<[f32; INNER_DIM]>,
 ) -> [f32; OUT_DIM] {
-    println!("vec {:?}", v.len());
     let mut array = [0f32; OUT_DIM];
-    println!("arr {:?}", array.len());
 
-    for batch_index in 0..BATCH_SIZE / 64 {
+    for batch_index in 0..NUM_RAYS {
         for item_index in 0..INNER_DIM {
             array[batch_index * INNER_DIM + item_index] = v[batch_index][item_index];
         }

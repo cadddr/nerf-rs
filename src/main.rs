@@ -7,7 +7,7 @@
 //  fully-connected layer (using a ReLU activation and 128 channels) that output the view-dependent RGB color.
 //and using volume ren- dering techniques to composite these values into an image (c
 mod ray_sampling;
-use ray_sampling::{HEIGHT, NUM_SAMPLES, T_FAR, WIDTH};
+use ray_sampling::{HEIGHT, T_FAR, WIDTH};
 
 mod image_loading;
 
@@ -73,7 +73,7 @@ fn main() {
 
     let imgs = image_loading::load_multiple_images_as_arrays(vec![
         "spheres/image-0.png",
-        "spheres/image-89.png",
+        "spheres/image-0.png",
     ]); //TODO:
 
     let mut backbuffer = [0; WIDTH * HEIGHT];
@@ -96,8 +96,9 @@ fn main() {
             angle = std::f32::consts::PI / 2.;
         }
         let (indices, views, points) = ray_sampling::sample_points_tensor_along_view_directions(
-            model.BATCH_SIZE() / NUM_SAMPLES,
-            angle,
+            model_tch::NUM_RAYS,
+            model_tch::NUM_POINTS,
+            0.,
         );
 
         //        let screen_coords: Vec<[f32; model_tch::INDIM]> = indices
