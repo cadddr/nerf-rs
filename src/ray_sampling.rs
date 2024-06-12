@@ -54,8 +54,9 @@ fn sample_points_along_ray(
 ) -> Vec<([f32; 3], f32)> {
     let mut points: Vec<[f32; 3]> = Vec::new();
     let mut locations: Vec<f32> = Vec::new();
-    let t = random::<f32>() * T_FAR;
+
     for i in 0..NUM_SAMPLES {
+        let t = random::<f32>() * T_FAR;
         let point = //vec3_add(from,
         vec3_scale(to, t);
         //);

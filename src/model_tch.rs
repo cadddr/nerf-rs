@@ -129,7 +129,7 @@ impl TchModel {
     pub fn new() -> TchModel {
         let vs = nn::VarStore::new(Device::Mps);
         let net = Net::new(&vs.root()); //net(&vs.root());
-        let opt = nn::Adam::default().build(&vs, 5e-5).unwrap();
+        let opt = nn::Adam::default().build(&vs, 5e-4).unwrap();
 
         TchModel { vs, net, opt }
     }
@@ -149,12 +149,13 @@ impl TchModel {
         let densities = densities_features
             .view((HIDDEN_NODES + 1 as i64, NUM_RAYS as i64, NUM_POINTS as i64))
             .get(0);
+        // .sigmoid();
 
         let features = densities_features
             .view((NUM_RAYS as i64, NUM_POINTS as i64, HIDDEN_NODES + 1 as i64))
             .slice(2 as i64, 1, HIDDEN_NODES + 1, 1);
 
-        let colors = features.apply(&self.net.fc9).relu();
+        let colors = features.apply(&self.net.fc9).relu().sigmoid();
 
         let distances_flat = array_vec_to_1d_array::<NUM_POINTS, BATCH_SIZE>(distances);
         let mut distances_tensor =
@@ -166,7 +167,6 @@ impl TchModel {
             &[distances_tensor.slice(1, 1, NUM_POINTS as i64, 1), tfar],
             1,
         ) - distances_tensor;
-        println!("distances_tensor {:?}", distances_tensor);
 
         compositing(densities, colors, distances_tensor.to(Device::Mps))
     }
@@ -176,8 +176,8 @@ impl TchModel {
         let gold_flat = array_vec_to_1d_array::<LABELS, LABELS_BATCHED>(gold);
         let gold_tensor = Tensor::of_slice(&gold_flat).view((NUM_RAYS as i64, LABELS as i64));
         let loss = mse_loss(&pred_tensor, &gold_tensor.to(Device::Mps));
-        self.backward_scale_grad_step(&loss);
-        // self.opt.backward_step(&loss);
+        // self.backward_scale_grad_step(&loss);
+        self.opt.backward_step(&loss);
 
         return f32::try_from(&loss).unwrap();
     }

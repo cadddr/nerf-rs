@@ -66,12 +66,12 @@ fn main() {
     let args = Cli::parse();
 
     let imgs = image_loading::load_multiple_images_as_arrays(vec![
-        "monkey-128-no-shading/image-0.png",
+        // "monkey-128-no-shading/image-0.png",
         "monkey-128-no-shading/image-40.png",
-        "monkey-128-no-shading/image-80.png",
-        "monkey-128-no-shading/image-120.png",
-        "monkey-128-no-shading/image-240.png",
-        "monkey-128-no-shading/image-359.png",
+        // "monkey-128-no-shading/image-80.png",
+        // "monkey-128-no-shading/image-120.png",
+        // "monkey-128-no-shading/image-240.png",
+        // "monkey-128-no-shading/image-359.png",
     ]); //TODO:
 
     let mut backbuffer = [0; WIDTH * HEIGHT];
