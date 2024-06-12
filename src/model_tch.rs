@@ -4,7 +4,7 @@ use tch::{
 };
 
 pub const NUM_RAYS: usize = 16384;
-pub const NUM_POINTS: usize = 1;
+pub const NUM_POINTS: usize = 2;
 pub const BATCH_SIZE: usize = NUM_RAYS * NUM_POINTS;
 
 pub const INDIM: usize = 3;
@@ -53,9 +53,17 @@ impl nn::ModuleT for Net {
             .apply(&self.fc5)
             .relu()
             .apply(&self.fc6)
+            .sigmoid()
             .view((NUM_RAYS as i64, LABELS as i64, NUM_POINTS as i64))
             // .mean_dim(Some([1i64].as_slice()), false, Kind::Float)
-            .avg_pool1d(&[NUM_POINTS as i64], &[1 as i64], &[0 as i64], false, false)
+            .avg_pool1d(
+                &[NUM_POINTS as i64],
+                &[1 as i64],
+                &[0 as i64],
+                // &[1 as i64],
+                false,
+                false,
+            )
             .view((NUM_RAYS as i64, LABELS as i64))
         // .sigmoid()
     }
@@ -144,7 +152,16 @@ impl TchModel {
         let gold_flat = array_vec_to_1d_array::<LABELS, LABELS_BATCHED>(gold);
         let gold_tensor = Tensor::of_slice(&gold_flat).view((NUM_RAYS as i64, LABELS as i64));
         let loss = mse_loss(&pred_tensor, &gold_tensor.to(Device::Mps));
-        self.opt.backward_step(&loss);
+        self.opt.zero_grad();
+        loss.backward();
+        for var in self.vs.trainable_variables() {
+            let mut grad = var.grad();
+            // println!("{:?}", grad.sum(Kind::Float));
+            grad *= NUM_POINTS as f32;
+            // panic!("{:?}", var.grad().sum(Kind::Float));
+        }
+        self.opt.step();
+        // self.opt.backward_step(&loss);
 
         return f32::try_from(&loss).unwrap();
     }
