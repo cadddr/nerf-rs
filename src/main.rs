@@ -49,7 +49,7 @@ struct Cli {
     #[arg(long, default_value_t = 50000)]
     num_iter: usize,
 
-    #[arg(long, default_value_t = 501)]
+    #[arg(long, default_value_t = 101)]
     eval_steps: usize,
 
     #[arg(long, default_value_t = 100)]

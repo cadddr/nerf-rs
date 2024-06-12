@@ -50,8 +50,8 @@ fn screen_space_to_world_space(x: f32, y: f32, width: f32, height: f32) -> [f32;
 fn sample_points_along_ray(from: [f32; 3], to: [f32; 3], NUM_SAMPLES: usize) -> Vec<[f32; 3]> {
     let mut points: Vec<[f32; 3]> = Vec::new();
     let mut locations: Vec<f32> = Vec::new();
+    let t = random::<f32>() * T_FAR;
     for i in 0..NUM_SAMPLES {
-        let t = random::<f32>() * T_FAR;
         let point = //vec3_add(from,
         vec3_scale(to, t);
         //);
