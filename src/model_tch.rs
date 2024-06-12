@@ -4,10 +4,10 @@ use tch::{
 };
 
 pub const NUM_RAYS: usize = 16384;
-pub const NUM_POINTS: usize = 2;
+pub const NUM_POINTS: usize = 1;
 pub const BATCH_SIZE: usize = NUM_RAYS * NUM_POINTS;
 
-pub const INDIM: usize = 3;
+pub const INDIM: usize = 4;
 const HIDDEN_NODES: i64 = 100;
 const LABELS: usize = 4;
 
@@ -19,16 +19,26 @@ struct Net {
     fc4: nn::Linear,
     fc5: nn::Linear,
     fc6: nn::Linear,
+    fc7: nn::Linear,
+    fc8: nn::Linear,
+    fc9: nn::Linear,
 }
 
 impl Net {
     fn new(vs: &nn::Path) -> Net {
+        // the MLP FΘ first processes the input 3D coordinate x with 8 fully-connected layers (using ReLU activations and 256 channels per layer)
+        // and outputs σ and a 256-dimensional feature vector.
         let fc1 = nn::linear(vs, INDIM as i64, HIDDEN_NODES, Default::default());
         let fc2 = nn::linear(vs, HIDDEN_NODES, HIDDEN_NODES, Default::default());
         let fc3 = nn::linear(vs, HIDDEN_NODES, HIDDEN_NODES, Default::default());
         let fc4 = nn::linear(vs, HIDDEN_NODES, HIDDEN_NODES, Default::default());
         let fc5 = nn::linear(vs, HIDDEN_NODES, HIDDEN_NODES, Default::default());
-        let fc6 = nn::linear(vs, HIDDEN_NODES, LABELS as i64, Default::default());
+        let fc6 = nn::linear(vs, HIDDEN_NODES, HIDDEN_NODES, Default::default());
+        let fc7 = nn::linear(vs, HIDDEN_NODES, HIDDEN_NODES, Default::default());
+        let fc8 = nn::linear(vs, HIDDEN_NODES, HIDDEN_NODES + 1, Default::default());
+        // This feature vector is then concatenated with the camera ray’s viewing direction and passed to one additional
+        // fully-connected layer (using a ReLU activation and 128 channels) that output the view-dependent RGB color.
+        let fc9 = nn::linear(vs, HIDDEN_NODES, LABELS as i64, Default::default());
         Net {
             fc1,
             fc2,
@@ -36,13 +46,17 @@ impl Net {
             fc4,
             fc5,
             fc6,
+            fc7,
+            fc8,
+            fc9,
         }
     }
 }
 
 impl nn::ModuleT for Net {
     fn forward_t(&self, xs: &Tensor, train: bool) -> Tensor {
-        xs.apply(&self.fc1)
+        let densities_features = xs
+            .apply(&self.fc1)
             .relu()
             .apply(&self.fc2)
             .relu()
@@ -53,74 +67,57 @@ impl nn::ModuleT for Net {
             .apply(&self.fc5)
             .relu()
             .apply(&self.fc6)
-            .sigmoid()
-            .view((NUM_RAYS as i64, LABELS as i64, NUM_POINTS as i64))
-            // .mean_dim(Some([1i64].as_slice()), false, Kind::Float)
-            .avg_pool1d(
-                &[NUM_POINTS as i64],
-                &[1 as i64],
-                &[0 as i64],
-                // &[1 as i64],
-                false,
-                false,
-            )
-            .view((NUM_RAYS as i64, LABELS as i64))
+            .relu()
+            .apply(&self.fc7)
+            .relu()
+            .apply(&self.fc8)
+            .relu();
+
+        return densities_features;
+
+        // Tensor::narrow
+
         // .sigmoid()
+        // .view((NUM_RAYS as i64, LABELS as i64, NUM_POINTS as i64))
+        // // .mean_dim(Some([1i64].as_slice()), false, Kind::Float)
+        // .avg_pool1d(
+        //     &[NUM_POINTS as i64],
+        //     &[1 as i64],
+        //     &[0 as i64],
+        //     // &[1 as i64],
+        //     false,
+        //     false,
+        // )
+        // .view((NUM_RAYS as i64, LABELS as i64));
     }
 }
 
-use tch::nn::ModuleT;
+fn accumulated_transmittance(densities: &Tensor, distances: &Tensor, i: i64) -> Tensor {
+    (densities.slice(1 as i64, 0, i - 1, 1) * distances.slice(1 as i64, 0, i - 1, 1))
+        .sum_dim_intlist(Some([1i64].as_slice()), false, Kind::Float)
+        .exp()
+}
 
-// MLP
-// fn net(vs: &nn::Path) -> Sequential {
-//     nn::seq()
-//         .add(nn::linear(
-//             vs / "layer1",
-//             INDIM as i64,
-//             HIDDEN_NODES,
-//             Default::default(),
-//         ))
-//         .add_fn(|xs| xs.relu())
-//         .add(nn::linear(
-//             vs / "layer2",
-//             HIDDEN_NODES,
-//             HIDDEN_NODES,
-//             Default::default(),
-//         ))
-//         .add_fn(|xs| xs.relu())
-//         .add(nn::linear(
-//             vs / "layer3",
-//             HIDDEN_NODES,
-//             HIDDEN_NODES,
-//             Default::default(),
-//         ))
-//         .add_fn(|xs| xs.relu())
-//         .add(nn::linear(
-//             vs / "layer4",
-//             HIDDEN_NODES,
-//             HIDDEN_NODES,
-//             Default::default(),
-//         ))
-//         .add_fn(|xs| xs.relu())
-//         .add(nn::linear(
-//             vs / "layer5",
-//             HIDDEN_NODES,
-//             HIDDEN_NODES,
-//             Default::default(),
-//         ))
-//         .add_fn(|xs| xs.relu())
-//         .add(nn::linear(
-//             vs,
-//             HIDDEN_NODES,
-//             LABELS as i64,
-//             Default::default(),
-//         ))
-//         .add_fn(|xs| xs.sigmoid())
-// }
+fn compositing(densities: Tensor, colors: Tensor, distances: Tensor) -> Tensor {
+    let tensor_vector: Vec<Tensor> = (0..NUM_POINTS)
+        .map(|i| accumulated_transmittance(&densities, &distances, i as i64))
+        .collect();
+
+    let tensor_array: [Tensor; NUM_POINTS] = tensor_vector.try_into().unwrap();
+    let T = Tensor::stack(&tensor_array, 0);
+
+    let final_colors: Tensor = (T * (1. as f32 - (-densities * distances).exp()) * colors)
+        .sum_dim_intlist(Some([1i64].as_slice()), false, Kind::Float);
+
+    return final_colors;
+}
+
+use tch::nn::ModuleT;
+use vecmath::traits::Float;
 
 pub struct TchModel {
     vs: nn::VarStore,
-    net: Net, //Sequential,
+    net: Net,
     opt: Optimizer,
 }
 
@@ -133,18 +130,38 @@ impl TchModel {
         TchModel { vs, net, opt }
     }
 
-    pub fn predict(&self, coords: Vec<Vec<[f32; INDIM]>>) -> Tensor {
+    pub fn predict(
+        &self,
+        coords: Vec<Vec<[f32; INDIM]>>,
+        distances: Vec<[f32; NUM_POINTS]>,
+    ) -> Tensor {
         const INDIM_BATCHED: usize = INDIM * BATCH_SIZE;
         let coords_flat =
             array_vec_to_1d_array::<INDIM, INDIM_BATCHED>(array_vec_vec_to_array_vec(coords));
         let coords_tensor = Tensor::of_slice(&coords_flat).view((BATCH_SIZE as i64, INDIM as i64));
-        let mut point_density_predictions =
-            self.net.forward_t(&coords_tensor.to(Device::Mps), true);
-        // panic!("{:?}", point_density_predictions);
-        // point_density_predictions = point_density_predictions
-        //     .view((NUM_RAYS as i64, NUM_POINTS as i64, LABELS as i64))
-        //     .mean_dim(Some([1i64].as_slice()), false, Kind::Float);
-        return point_density_predictions;
+
+        let mut densities_features = self.net.forward_t(&coords_tensor.to(Device::Mps), true);
+
+        let densities = densities_features
+            .view((HIDDEN_NODES + 1 as i64, NUM_RAYS as i64, NUM_POINTS as i64))
+            .get(0);
+        println!("{:?}", densities.size());
+        let features = densities_features.slice(2 as i64, 0, HIDDEN_NODES, 1);
+        panic!("{:?}", features.size());
+
+        let colors = features.apply(&self.fc9).relu();
+
+        let distances_flat = array_vec_to_1d_array::<NUM_POINTS, BATCH_SIZE>(distances);
+        let distances_tensor =
+            Tensor::of_slice(&distances_flat).view((BATCH_SIZE as i64, NUM_POINTS as i64));
+
+        let tfar = Tensor::of_slice(&[10f32; NUM_RAYS]);
+        distances_tensor = Tensor::concat(
+            &[distances_tensor.slice(1, 1, NUM_POINTS as i64, 1), tfar],
+            1,
+        ) - distances_tensor;
+
+        compositing(densities, colors, distances_tensor)
     }
 
     pub fn step(&mut self, pred_tensor: Tensor, gold: Vec<[f32; LABELS]>) -> f32 {
@@ -152,18 +169,20 @@ impl TchModel {
         let gold_flat = array_vec_to_1d_array::<LABELS, LABELS_BATCHED>(gold);
         let gold_tensor = Tensor::of_slice(&gold_flat).view((NUM_RAYS as i64, LABELS as i64));
         let loss = mse_loss(&pred_tensor, &gold_tensor.to(Device::Mps));
+        self.backward_scale_grad_step(&loss);
+        // self.opt.backward_step(&loss);
+
+        return f32::try_from(&loss).unwrap();
+    }
+
+    fn backward_scale_grad_step(&mut self, loss: &Tensor) {
         self.opt.zero_grad();
         loss.backward();
         for var in self.vs.trainable_variables() {
             let mut grad = var.grad();
-            // println!("{:?}", grad.sum(Kind::Float));
             grad *= NUM_POINTS as f32;
-            // panic!("{:?}", var.grad().sum(Kind::Float));
         }
         self.opt.step();
-        // self.opt.backward_step(&loss);
-
-        return f32::try_from(&loss).unwrap();
     }
 
     pub fn get_predictions_as_array_vec(&self, predictions: &Tensor) -> Vec<[f32; LABELS]> {

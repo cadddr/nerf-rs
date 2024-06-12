@@ -47,7 +47,11 @@ fn screen_space_to_world_space(x: f32, y: f32, width: f32, height: f32) -> [f32;
     return to;
 }
 
-fn sample_points_along_ray(from: [f32; 3], to: [f32; 3], NUM_SAMPLES: usize) -> Vec<[f32; 3]> {
+fn sample_points_along_ray(
+    from: [f32; 3],
+    to: [f32; 3],
+    NUM_SAMPLES: usize,
+) -> Vec<([f32; 3], f32)> {
     let mut points: Vec<[f32; 3]> = Vec::new();
     let mut locations: Vec<f32> = Vec::new();
     let t = random::<f32>() * T_FAR;
@@ -59,17 +63,29 @@ fn sample_points_along_ray(from: [f32; 3], to: [f32; 3], NUM_SAMPLES: usize) -> 
         locations.push(t);
     }
 
-    //    let mut both = points.into_iter().zip(locations.into_iter()).collect::<Vec<([f32; 3], f32)>>();
-    //    both.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-    //    points = both.iter().map(|a| a.0).collect::<Vec<[f32; 3]>>();
-    return points;
+    let mut points_locations = points
+        .into_iter()
+        .zip(locations.into_iter())
+        .collect::<Vec<([f32; 3], f32)>>();
+
+    points_locations.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+
+    points_locations
+    // .windows(2)
+    // .map(|w| (w[1].1 - w[0].1))
+    // .collect()
+
+    // return points_locations
+    //     .iter()
+    //     .map(|a| [a.0[0], a.0[1], a.0[2], a.1])
+    //     .collect::<Vec<[f32; 4]>>();
 }
 
 pub fn sample_points_tensor_along_view_directions(
     num_rays: usize,
     num_points: usize,
     angle: f32,
-) -> (Vec<[usize; 2]>, Vec<[f32; 3]>, Vec<Vec<[f32; 3]>>) {
+) -> (Vec<[usize; 2]>, Vec<[f32; 3]>, Vec<Vec<([f32; 3], f32)>>) {
     let mut coord_y: Vec<i64> = Vec::try_from(Tensor::randint(
         HEIGHT as i64,
         &[num_rays as i64],
@@ -89,7 +105,7 @@ pub fn sample_points_tensor_along_view_directions(
         .map(|(y, x)| [*y as usize, *x as usize])
         .collect();
     let mut views: Vec<[f32; 3]> = Vec::new(); // TODO:
-    let mut points: Vec<Vec<[f32; 3]>> = indices
+    let mut points: Vec<Vec<([f32; 3], f32)>> = indices
         .iter()
         .map(|[y, x]| {
             screen_space_to_world_space(*x as f32, *y as f32, WIDTH as f32, HEIGHT as f32)
@@ -97,7 +113,7 @@ pub fn sample_points_tensor_along_view_directions(
         .map(|to| {
             sample_points_along_ray(FROM, to, num_points)
                 .iter()
-                .map(|pt| rotate(*pt, angle))
+                .map(|pt| (rotate(pt.0, angle), pt.1))
                 .collect()
         })
         .collect();

@@ -2,9 +2,6 @@
 //feeding those locations into an MLP to produce a color and volume density (b),
 //  We encourage the representation to be multiview consistent by restricting the network to predict the volume density σ as a function of only the location x,
 //  while allowing the RGB color c to be predicted as a function of both location and viewing direction.
-//  To accomplish this, the MLP FΘ first processes the input 3D coordinate x with 8 fully-connected layers (using ReLU activations and 256 channels per layer),
-//  and outputs σ and a 256-dimensional feature vector. This feature vector is then concatenated with the camera ray’s viewing direction and passed to one additional
-//  fully-connected layer (using a ReLU activation and 128 channels) that output the view-dependent RGB color.
 //and using volume ren- dering techniques to composite these values into an image (c
 mod ray_sampling;
 use ray_sampling::{HEIGHT, T_FAR, WIDTH};
@@ -14,7 +11,7 @@ mod image_loading;
 mod input_transforms;
 
 mod model_dfdx;
-use model_dfdx::{from_u8_rgb, prediction_array_as_u32, prediction_as_u32, rgba_to_u8_array};
+use model_dfdx::{prediction_array_as_u32, rgba_to_u8_array};
 
 mod model_tch;
 
@@ -25,7 +22,7 @@ use textplots::{Chart, Plot, Shape};
 
 use clap::Parser;
 
-use std::{f32::consts::PI, time::SystemTime};
+use std::time::SystemTime;
 
 use tensorboard_rs::summary_writer::SummaryWriter;
 
@@ -68,34 +65,17 @@ fn main() {
 
     let args = Cli::parse();
 
-    //    let img = image_loading::load_image_as_array(&args.img_path);
-    //    println!("image {:?} pixels", img.len());
-
     let imgs = image_loading::load_multiple_images_as_arrays(vec![
-        "monkey-128-no-shading/image-40.png", // "spheres-128-no-shading/image-0.png",
-                                              // "spheres-128-no-shading/image-4.png",
-                                              // "spheres-128-no-shading/image-9.png",
-                                              // "spheres-128-no-shading/image-14.png",
-                                              // "spheres-128-no-shading/image-19.png",
-                                              // "spheres-128-no-shading/image-24.png",
-                                              // "spheres-128-no-shading/image-29.png",
-                                              // "spheres-128-no-shading/image-34.png",
-                                              // "spheres-128-no-shading/image-39.png",
-                                              // "spheres-128-no-shading/image-44.png",
-                                              // "spheres-128-no-shading/image-49.png",
-                                              // "spheres-128-no-shading/image-54.png",
-                                              // "spheres-128-no-shading/image-59.png",
-                                              // "spheres-128-no-shading/image-64.png",
-                                              // "spheres-128-no-shading/image-69.png",
-                                              // "spheres-128-no-shading/image-74.png",
-                                              // "spheres-128-no-shading/image-79.png",
-                                              // "spheres-128-no-shading/image-84.png",
-                                              // "spheres-128-no-shading/image-89.png",
+        "monkey-128-no-shading/image-0.png",
+        "monkey-128-no-shading/image-40.png",
+        "monkey-128-no-shading/image-80.png",
+        "monkey-128-no-shading/image-120.png",
+        "monkey-128-no-shading/image-240.png",
+        "monkey-128-no-shading/image-359.png",
     ]); //TODO:
 
     let mut backbuffer = [0; WIDTH * HEIGHT];
 
-    // let mut model = model_dfdx::DfdxMlp::new();
     let mut model = model_tch::TchModel::new();
     if args.load_path != "" {
         model.load(&args.load_path);
@@ -128,9 +108,26 @@ fn main() {
         //            .collect();
 
         let predictions = model.predict(
-            points, //                .iter()
-                   //                .map(|[x, y, z]| [*x, *y, *z, (iter % 2) as f32 - 0.5])
-                   //                .collect(),
+            points
+                .into_iter()
+                .map(|ray_points| {
+                    ray_points
+                        .into_iter()
+                        .map(|([x, y, z], _)| [x, y, z, angle])
+                        .collect::<Vec<[f32; 4]>>()
+                })
+                .collect(),
+            points
+                .into_iter()
+                .map(|ray_points| {
+                    ray_points
+                        .into_iter()
+                        .map(|(_, t)| t)
+                        .collect::<Vec<f32>>()
+                        .try_into()
+                        .unwrap()
+                })
+                .collect(),
         );
 
         // panic!("{:?}", predictions.get(0));
