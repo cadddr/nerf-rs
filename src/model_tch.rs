@@ -4,7 +4,7 @@ use tch::{
 };
 
 pub const NUM_RAYS: usize = 16384;
-pub const NUM_POINTS: usize = 1;
+pub const NUM_POINTS: usize = 2;
 pub const BATCH_SIZE: usize = NUM_RAYS * NUM_POINTS;
 
 pub const INDIM: usize = 4;
@@ -93,9 +93,11 @@ impl nn::ModuleT for Net {
 }
 
 fn accumulated_transmittance(densities: &Tensor, distances: &Tensor, i: i64) -> Tensor {
-    (densities.slice(1 as i64, 0, i - 1, 1) * distances.slice(1 as i64, 0, i - 1, 1))
+    let result = (densities.slice(1 as i64, 0, i - 1, 1) * distances.slice(1 as i64, 0, i - 1, 1))
         .sum_dim_intlist(Some([1i64].as_slice()), false, Kind::Float)
-        .exp()
+        .exp();
+
+    return result;
 }
 
 fn compositing(densities: Tensor, colors: Tensor, distances: Tensor) -> Tensor {
@@ -104,9 +106,11 @@ fn compositing(densities: Tensor, colors: Tensor, distances: Tensor) -> Tensor {
         .collect();
 
     let tensor_array: [Tensor; NUM_POINTS] = tensor_vector.try_into().unwrap();
-    let T = Tensor::stack(&tensor_array, 0);
 
-    let final_colors: Tensor = (T * (1. as f32 - (-densities * distances).exp()) * colors)
+    let T = Tensor::stack(&tensor_array, 0).view((NUM_RAYS as i64, NUM_POINTS as i64));
+
+    let final_colors: Tensor = ((T * (1. as f32 - (-densities * distances).exp())).unsqueeze(2)
+        * colors)
         .sum_dim_intlist(Some([1i64].as_slice()), false, Kind::Float);
 
     return final_colors;
@@ -140,28 +144,31 @@ impl TchModel {
             array_vec_to_1d_array::<INDIM, INDIM_BATCHED>(array_vec_vec_to_array_vec(coords));
         let coords_tensor = Tensor::of_slice(&coords_flat).view((BATCH_SIZE as i64, INDIM as i64));
 
-        let mut densities_features = self.net.forward_t(&coords_tensor.to(Device::Mps), true);
+        let densities_features = self.net.forward_t(&coords_tensor.to(Device::Mps), true);
 
         let densities = densities_features
             .view((HIDDEN_NODES + 1 as i64, NUM_RAYS as i64, NUM_POINTS as i64))
             .get(0);
-        println!("{:?}", densities.size());
-        let features = densities_features.slice(2 as i64, 0, HIDDEN_NODES, 1);
-        panic!("{:?}", features.size());
 
-        let colors = features.apply(&self.fc9).relu();
+        let features = densities_features
+            .view((NUM_RAYS as i64, NUM_POINTS as i64, HIDDEN_NODES + 1 as i64))
+            .slice(2 as i64, 1, HIDDEN_NODES + 1, 1);
+
+        let colors = features.apply(&self.net.fc9).relu();
 
         let distances_flat = array_vec_to_1d_array::<NUM_POINTS, BATCH_SIZE>(distances);
-        let distances_tensor =
-            Tensor::of_slice(&distances_flat).view((BATCH_SIZE as i64, NUM_POINTS as i64));
+        let mut distances_tensor =
+            Tensor::of_slice(&distances_flat).view((NUM_RAYS as i64, NUM_POINTS as i64));
 
-        let tfar = Tensor::of_slice(&[10f32; NUM_RAYS]);
+        let tfar = Tensor::of_slice(&[10f32; NUM_RAYS]).unsqueeze(1);
+
         distances_tensor = Tensor::concat(
             &[distances_tensor.slice(1, 1, NUM_POINTS as i64, 1), tfar],
             1,
         ) - distances_tensor;
+        println!("distances_tensor {:?}", distances_tensor);
 
-        compositing(densities, colors, distances_tensor)
+        compositing(densities, colors, distances_tensor.to(Device::Mps))
     }
 
     pub fn step(&mut self, pred_tensor: Tensor, gold: Vec<[f32; LABELS]>) -> f32 {

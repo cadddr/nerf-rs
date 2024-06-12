@@ -109,11 +109,11 @@ fn main() {
 
         let predictions = model.predict(
             points
-                .into_iter()
+                .iter()
                 .map(|ray_points| {
                     ray_points
                         .into_iter()
-                        .map(|([x, y, z], _)| [x, y, z, angle])
+                        .map(|([x, y, z], _)| [*x, *y, *z, angle])
                         .collect::<Vec<[f32; 4]>>()
                 })
                 .collect(),
