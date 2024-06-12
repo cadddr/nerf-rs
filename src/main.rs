@@ -49,7 +49,7 @@ struct Cli {
     #[arg(long, default_value_t = 50000)]
     num_iter: usize,
 
-    #[arg(long, default_value_t = 101)]
+    #[arg(long, default_value_t = 501)]
     eval_steps: usize,
 
     #[arg(long, default_value_t = 100)]
@@ -72,25 +72,25 @@ fn main() {
     //    println!("image {:?} pixels", img.len());
 
     let imgs = image_loading::load_multiple_images_as_arrays(vec![
-        "spheres-128-no-shading/image-0.png",
-        "spheres-128-no-shading/image-4.png",
-        "spheres-128-no-shading/image-9.png",
-        "spheres-128-no-shading/image-14.png",
-        "spheres-128-no-shading/image-19.png",
-        "spheres-128-no-shading/image-24.png",
-        "spheres-128-no-shading/image-29.png",
-        "spheres-128-no-shading/image-34.png",
-        "spheres-128-no-shading/image-39.png",
-        "spheres-128-no-shading/image-44.png",
-        "spheres-128-no-shading/image-49.png",
-        "spheres-128-no-shading/image-54.png",
-        "spheres-128-no-shading/image-59.png",
-        "spheres-128-no-shading/image-64.png",
-        "spheres-128-no-shading/image-69.png",
-        "spheres-128-no-shading/image-74.png",
-        "spheres-128-no-shading/image-79.png",
-        "spheres-128-no-shading/image-84.png",
-        "spheres-128-no-shading/image-89.png",
+        "monkey-128-no-shading/image-40.png", // "spheres-128-no-shading/image-0.png",
+                                              // "spheres-128-no-shading/image-4.png",
+                                              // "spheres-128-no-shading/image-9.png",
+                                              // "spheres-128-no-shading/image-14.png",
+                                              // "spheres-128-no-shading/image-19.png",
+                                              // "spheres-128-no-shading/image-24.png",
+                                              // "spheres-128-no-shading/image-29.png",
+                                              // "spheres-128-no-shading/image-34.png",
+                                              // "spheres-128-no-shading/image-39.png",
+                                              // "spheres-128-no-shading/image-44.png",
+                                              // "spheres-128-no-shading/image-49.png",
+                                              // "spheres-128-no-shading/image-54.png",
+                                              // "spheres-128-no-shading/image-59.png",
+                                              // "spheres-128-no-shading/image-64.png",
+                                              // "spheres-128-no-shading/image-69.png",
+                                              // "spheres-128-no-shading/image-74.png",
+                                              // "spheres-128-no-shading/image-79.png",
+                                              // "spheres-128-no-shading/image-84.png",
+                                              // "spheres-128-no-shading/image-89.png",
     ]); //TODO:
 
     let mut backbuffer = [0; WIDTH * HEIGHT];
@@ -102,7 +102,7 @@ fn main() {
     }
 
     let mut iter = 0;
-    let mut writer = SummaryWriter::new(&args.log_dir);
+    let mut writer = SummaryWriter::new(&format!("{}/{}", &args.log_dir, ts));
 
     let mut batch_losses: Vec<f32> = Vec::new();
     let update_window_buffer = |buffer: &mut Vec<u32>| {
@@ -132,6 +132,8 @@ fn main() {
                    //                .map(|[x, y, z]| [*x, *y, *z, (iter % 2) as f32 - 0.5])
                    //                .collect(),
         );
+
+        // panic!("{:?}", predictions.get(0));
 
         if iter % args.eval_steps == 0 {
             // refresh backbuffer every few steps

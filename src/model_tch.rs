@@ -3,7 +3,7 @@ use tch::{
 };
 
 pub const NUM_RAYS: usize = 16384;
-pub const NUM_POINTS: usize = 2;
+pub const NUM_POINTS: usize = 4;
 pub const BATCH_SIZE: usize = NUM_RAYS * NUM_POINTS;
 
 pub const INDIM: usize = 3;
@@ -54,6 +54,7 @@ fn net(vs: &nn::Path) -> Sequential {
             LABELS as i64,
             Default::default(),
         ))
+        .add_fn(|xs| xs.sigmoid())
 }
 
 pub struct TchModel {
@@ -79,7 +80,7 @@ impl TchModel {
         let mut point_density_predictions = self.net.forward(&coords_tensor.to(Device::Mps));
         point_density_predictions = point_density_predictions
             .view((NUM_RAYS as i64, NUM_POINTS as i64, LABELS as i64))
-            .sum_dim_intlist(Some([1i64].as_slice()), false, Kind::Float);
+            .mean_dim(Some([1i64].as_slice()), false, Kind::Float);
         return point_density_predictions;
     }
 
