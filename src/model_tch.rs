@@ -4,7 +4,7 @@ use tch::{
 };
 
 pub const NUM_RAYS: usize = 16384;
-pub const NUM_POINTS: usize = 2;
+pub const NUM_POINTS: usize = 1;
 pub const BATCH_SIZE: usize = NUM_RAYS * NUM_POINTS;
 
 pub const INDIM: usize = 4;
@@ -109,9 +109,14 @@ fn compositing(densities: Tensor, colors: Tensor, distances: Tensor) -> Tensor {
 
     let T = Tensor::stack(&tensor_array, 0).view((NUM_RAYS as i64, NUM_POINTS as i64));
 
-    let final_colors: Tensor = ((T * (1. as f32 - (-densities * distances).exp())).unsqueeze(2)
-        * colors)
-        .sum_dim_intlist(Some([1i64].as_slice()), false, Kind::Float);
+    let weights = (T * (1. as f32 - (-densities * distances).exp())).unsqueeze(2);
+    // weights.softmax(1, Kind::Float).print();
+
+    let final_colors: Tensor = (weights.softmax(1, Kind::Float) * colors).sum_dim_intlist(
+        Some([1i64].as_slice()),
+        false,
+        Kind::Float,
+    );
 
     return final_colors;
 }
@@ -155,7 +160,7 @@ impl TchModel {
             .view((NUM_RAYS as i64, NUM_POINTS as i64, HIDDEN_NODES + 1 as i64))
             .slice(2 as i64, 1, HIDDEN_NODES + 1, 1);
 
-        let colors = features.apply(&self.net.fc9).relu().sigmoid();
+        let colors = features.apply(&self.net.fc9).relu(); //.sigmoid();
 
         let distances_flat = array_vec_to_1d_array::<NUM_POINTS, BATCH_SIZE>(distances);
         let mut distances_tensor =
