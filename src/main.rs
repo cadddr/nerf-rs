@@ -130,7 +130,7 @@ fn main() {
                 .collect(),
         );
 
-        panic!("{:?}", predictions);
+        // panic!("{:?}", predictions);
 
         if iter % args.eval_steps == 0 {
             // refresh backbuffer every few steps
@@ -143,7 +143,7 @@ fn main() {
             let mut bucket_counts_y: [f64; 10000 as usize] = [0.; 10000 as usize];
             let mut bucket_counts_x: [f64; 10000 as usize] = [0.; 10000 as usize];
             let mut bucket_counts_z: [f64; T_FAR as usize] = [0.; T_FAR as usize];
-            let mut bucket_counts_r: [f64; T_FAR as usize] = [0.; T_FAR as usize];
+            let mut bucket_counts_r: [f64; WIDTH as usize] = [0.; WIDTH as usize];
             let mut bucket_counts_g: [f64; T_FAR as usize] = [0.; T_FAR as usize];
             let mut bucket_counts_b: [f64; T_FAR as usize] = [0.; T_FAR as usize];
 
@@ -162,8 +162,9 @@ fn main() {
                 // bucket_counts_y[f32::floor(1000. * world_y) as usize] += 1.;
                 // bucket_counts_x[f32::floor(1000. * world_x) as usize] += 1.;
                 // bucket_counts_z[f32::floor(world_z) as usize] += 1.;
-
-                // bucket_counts_r[f32::floor(world_z) as usize] += prediction[0] as f64;
+                if *y == HEIGHT - 1 {
+                    bucket_counts_r[f32::floor(*x as f32) as usize] = prediction[0] as f64;
+                }
                 // bucket_counts_g[f32::floor(world_z) as usize] += prediction[1] as f64;
                 // bucket_counts_b[f32::floor(world_z) as usize] += prediction[2] as f64;
             }
@@ -188,7 +189,8 @@ fn main() {
                 &vec![3, WIDTH, HEIGHT][..],
                 iter,
             );
-            model.save(&format!("{}/checkpoint-{}-{}.ot", args.save_dir, ts, iter));
+            // panic!();
+            // model.save(&format!("{}/checkpoint-{}-{}.ot", args.save_dir, ts, iter));
         }
 
         // let loss: f32 = model.step(predictions, gold);

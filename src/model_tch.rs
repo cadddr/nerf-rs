@@ -3,7 +3,7 @@ use tch::{
     nn, nn::Module, nn::Optimizer, nn::OptimizerConfig, nn::Sequential, Device, Kind, Tensor,
 };
 
-pub const NUM_RAYS: usize = 16384;
+pub const NUM_RAYS: usize = 10;
 pub const NUM_POINTS: usize = 2;
 pub const BATCH_SIZE: usize = NUM_RAYS * NUM_POINTS;
 
@@ -106,26 +106,38 @@ fn mean_compositing(colors: Tensor) -> Tensor {
         .mean_dim(Some([1i64].as_slice()), false, Kind::Float)
 }
 
+fn sum_compositing(colors: Tensor) -> Tensor {
+    colors
+        // .view((NUM_RAYS as i64, NUM_POINTS as i64, LABELS as i64))
+        .sum_dim_intlist(Some([1i64].as_slice()), false, Kind::Float)
+}
+
 fn select_compositing(colors: Tensor) -> Tensor {
     println!("before {:?}", colors);
     colors.get(0).print();
 
-    let result = colors
+    let result = //(
+        colors
         // .view((NUM_POINTS as i64, NUM_RAYS as i64, LABELS as i64))
         .permute(&[1, 0, 2])
-        .get(1);
+        .get(0);
+    // + colors
+    //     // .view((NUM_POINTS as i64, NUM_RAYS as i64, LABELS as i64))
+    //     .permute(&[1, 0, 2])
+    //     .get(1))
+    // / 2.0;
 
     println!("after {:?}", result);
     result.get(0).print();
 
-    println!(
-        "stacked {:?}",
-        Tensor::stack(&[&result, &result], 0).permute(&[1, 0, 2])
-    );
-    (colors - Tensor::stack(&[&result, &result], 0).permute(&[1, 0, 2]))
-        .abs()
-        .max()
-        .print();
+    // println!(
+    //     "stacked {:?}",
+    //     Tensor::stack(&[&result, &result], 0).permute(&[1, 0, 2])
+    // );
+    // (colors - Tensor::stack(&[&result, &result], 0).permute(&[1, 0, 2]))
+    //     .abs()
+    //     .max()
+    //     .print();
     // result.get(result.size1().unwrap() - 1).print();
     result
     // panic!();
@@ -214,7 +226,7 @@ impl TchModel {
             array_vec_to_1d_array::<INDIM, INDIM_BATCHED>(array_vec_vec_to_array_vec(coords));
 
         let coords_tensor = Tensor::of_slice(&coords_flat).view((BATCH_SIZE as i64, INDIM as i64));
-
+        coords_tensor.print();
         let densities_features = self.net.forward_t(&coords_tensor.to(Device::Mps), true);
 
         let densities = densities_features
@@ -246,6 +258,7 @@ impl TchModel {
         // ) - distances_tensor;
 
         // compositing(densities, colors, distances_tensor.to(Device::Mps))
+        colors.print();
         select_compositing(colors)
     }
 
@@ -298,7 +311,7 @@ fn array_vec_to_1d_array<const INNER_DIM: usize, const OUT_DIM: usize>(
 ) -> [f32; OUT_DIM] {
     let mut array = [0f32; OUT_DIM];
 
-    for batch_index in 0..NUM_RAYS {
+    for batch_index in 0..BATCH_SIZE {
         for item_index in 0..INNER_DIM {
             array[batch_index * INNER_DIM + item_index] = v[batch_index][item_index];
         }
@@ -311,9 +324,10 @@ pub fn tensor_to_array_vec(a: &Tensor) -> Vec<[f32; LABELS]> {
 
     for i in 0..a.size()[0] {
         let mut r = [0f32; LABELS];
-        for j in 0..LABELS {
+        for j in 0..LABELS - 1 {
             r[j] = a.double_value(&[i as i64, j as i64]) as f32;
         }
+        r[LABELS - 1] = 1.0; // HACK:
         v.push(r);
     }
     return v;

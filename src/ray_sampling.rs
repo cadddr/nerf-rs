@@ -54,7 +54,8 @@ fn sample_points_along_ray(
 ) -> Vec<([f32; 3], f32)> {
     let mut points: Vec<[f32; 3]> = Vec::new();
     let mut locations: Vec<f32> = Vec::new();
-    let t = random::<f32>() * T_FAR;
+    let t = //random::<f32>()
+        0.5 * T_FAR;
     for i in 0..NUM_SAMPLES {
         let point = //vec3_add(from,
         vec3_scale(to, t);
@@ -86,18 +87,26 @@ pub fn sample_points_tensor_along_view_directions(
     num_points: usize,
     angle: f32,
 ) -> (Vec<[usize; 2]>, Vec<[f32; 3]>, Vec<Vec<([f32; 3], f32)>>) {
-    let mut coord_y: Vec<i64> = Vec::try_from(Tensor::randint(
-        HEIGHT as i64,
-        &[num_rays as i64],
-        kind::FLOAT_CPU,
-    ))
-    .unwrap();
-    let mut coord_x: Vec<i64> = Vec::try_from(Tensor::randint(
-        WIDTH as i64,
-        &[num_rays as i64],
-        kind::FLOAT_CPU,
-    ))
-    .unwrap();
+    let mut coord_y: Vec<i64> =
+        Vec::try_from(10. * Tensor::arange(num_rays as i64, kind::FLOAT_CPU)) //Vec::try_from(Tensor::randint(
+            //     HEIGHT as i64,
+            //     &[num_rays as i64],
+            //     kind::FLOAT_CPU,
+            // ))
+            .unwrap();
+
+    println!("y {:?}", coord_y);
+
+    let mut coord_x: Vec<i64> =
+        Vec::try_from(10. * Tensor::arange(num_rays as i64, kind::FLOAT_CPU))
+            //Vec::try_from(Tensor::randint(
+            //     WIDTH as i64,
+            //     &[num_rays as i64],
+            //     kind::FLOAT_CPU,
+            // ))
+            .unwrap();
+
+    println!("x {:?}", coord_x);
 
     let mut indices: Vec<[usize; 2]> = coord_y
         .iter()
