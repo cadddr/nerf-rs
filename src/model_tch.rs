@@ -3,7 +3,7 @@ use tch::{
     nn, nn::Module, nn::Optimizer, nn::OptimizerConfig, nn::Sequential, Device, Kind, Tensor,
 };
 
-pub const NUM_RAYS: usize = 10;
+pub const NUM_RAYS: usize = 16384;
 pub const NUM_POINTS: usize = 2;
 pub const BATCH_SIZE: usize = NUM_RAYS * NUM_POINTS;
 
@@ -226,7 +226,7 @@ impl TchModel {
             array_vec_to_1d_array::<INDIM, INDIM_BATCHED>(array_vec_vec_to_array_vec(coords));
 
         let coords_tensor = Tensor::of_slice(&coords_flat).view((BATCH_SIZE as i64, INDIM as i64));
-        coords_tensor.print();
+        // coords_tensor.print();
         let densities_features = self.net.forward_t(&coords_tensor.to(Device::Mps), true);
 
         let densities = densities_features
@@ -246,7 +246,7 @@ impl TchModel {
             .relu()
             .view((NUM_RAYS as i64, NUM_POINTS as i64, LABELS as i64)); //.sigmoid(); // TODO: need batch first?
 
-        // let distances_flat = array_vec_to_1d_array::<NUM_POINTS, BATCH_SIZE>(distances);
+        // let distances_flat = array_vec_to_1d_array::<NUM_POINTS, BATCH_SIZE>(distances); // TODO: check
         // let mut distances_tensor =
         //     Tensor::of_slice(&distances_flat).view((NUM_RAYS as i64, NUM_POINTS as i64));
 
@@ -258,8 +258,8 @@ impl TchModel {
         // ) - distances_tensor;
 
         // compositing(densities, colors, distances_tensor.to(Device::Mps))
-        colors.print();
-        select_compositing(colors)
+        // colors.print();
+        mean_compositing(colors)
     }
 
     pub fn step(&mut self, pred_tensor: Tensor, gold: Vec<[f32; LABELS]>) -> f32 {
@@ -311,7 +311,7 @@ fn array_vec_to_1d_array<const INNER_DIM: usize, const OUT_DIM: usize>(
 ) -> [f32; OUT_DIM] {
     let mut array = [0f32; OUT_DIM];
 
-    for batch_index in 0..BATCH_SIZE {
+    for batch_index in 0..OUT_DIM / INNER_DIM {
         for item_index in 0..INNER_DIM {
             array[batch_index * INNER_DIM + item_index] = v[batch_index][item_index];
         }
