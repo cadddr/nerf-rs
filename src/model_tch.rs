@@ -228,7 +228,11 @@ impl TchModel {
             .view((NUM_RAYS as i64, NUM_POINTS as i64, HIDDEN_NODES + 1 as i64))
             .slice(2 as i64, 1, HIDDEN_NODES + 1, 1);
 
-        let colors = features.apply(&self.net.fc9).relu(); //.sigmoid(); // TODO: need batch first?
+        let colors = features
+            .view((BATCH_SIZE as i64, HIDDEN_NODES))
+            .apply(&self.net.fc9)
+            .relu()
+            .view((NUM_RAYS as i64, NUM_POINTS as i64, LABELS as i64)); //.sigmoid(); // TODO: need batch first?
 
         // let distances_flat = array_vec_to_1d_array::<NUM_POINTS, BATCH_SIZE>(distances);
         // let mut distances_tensor =
