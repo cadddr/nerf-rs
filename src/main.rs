@@ -40,7 +40,7 @@ struct Cli {
     #[arg(long, default_value = "checkpoints")]
     save_dir: String,
 
-    #[arg(long, default_value = "")]
+    #[arg(long, default_value = "checkpoints/checkpoint-1718836047-505.ot")]
     load_path: String,
 
     #[arg(long, default_value_t = 50000)]
@@ -130,7 +130,7 @@ fn main() {
                 .collect(),
         );
 
-        // panic!("{:?}", predictions.get(0));
+        panic!("{:?}", predictions);
 
         if iter % args.eval_steps == 0 {
             // refresh backbuffer every few steps
@@ -191,20 +191,20 @@ fn main() {
             model.save(&format!("{}/checkpoint-{}-{}.ot", args.save_dir, ts, iter));
         }
 
-        let loss: f32 = model.step(predictions, gold);
-        // loss & plotting
-        println!(
-            "iter={}, angle={:.4} loss={:.16}",
-            iter,
-            180. * angle / std::f32::consts::PI,
-            loss
-        );
-        writer.add_scalar("loss", loss, iter);
+        // let loss: f32 = model.step(predictions, gold);
+        // // loss & plotting
+        // println!(
+        //     "iter={}, angle={:.4} loss={:.16}",
+        //     iter,
+        //     180. * angle / std::f32::consts::PI,
+        //     loss
+        // );
+        // writer.add_scalar("loss", loss, iter);
 
-        batch_losses.push(loss);
-        Chart::new(120, 40, 0., batch_losses.len() as f32)
-            .lineplot(&Shape::Continuous(Box::new(|x| batch_losses[x as usize])))
-            .display();
+        // batch_losses.push(loss);
+        // Chart::new(120, 40, 0., batch_losses.len() as f32)
+        //     .lineplot(&Shape::Continuous(Box::new(|x| batch_losses[x as usize])))
+        //     .display();
 
         draw_to_screen(buffer, &backbuffer); //, &img);
 
