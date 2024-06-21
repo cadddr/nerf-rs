@@ -4,7 +4,7 @@ use tch::{
 };
 
 pub const NUM_RAYS: usize = 16384;
-pub const NUM_POINTS: usize = 2;
+pub const NUM_POINTS: usize = 4;
 pub const BATCH_SIZE: usize = NUM_RAYS * NUM_POINTS;
 
 pub const INDIM: usize = 4;
@@ -243,7 +243,7 @@ impl TchModel {
         let colors = features
             .view((BATCH_SIZE as i64, HIDDEN_NODES))
             .apply(&self.net.fc9)
-            .relu()
+            .sigmoid()
             .view((NUM_RAYS as i64, NUM_POINTS as i64, LABELS as i64)); //.sigmoid(); // TODO: need batch first?
 
         // let distances_flat = array_vec_to_1d_array::<NUM_POINTS, BATCH_SIZE>(distances); // TODO: check
