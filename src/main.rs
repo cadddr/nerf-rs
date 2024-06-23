@@ -57,58 +57,14 @@ fn main() {
     let mut backbuffer = [0; WIDTH * HEIGHT];
     let update_window_buffer = |buffer: &mut Vec<u32>| {
         //predict emittance and density
-        let n = iter % imgs.len();
-        let angle = (n as f32 / imgs.len() as f32) * std::f32::consts::PI / 2.;
-
-        let (indices, views, points) = ray_sampling::sample_points_tensor_along_view_directions(
-            model_tch::NUM_RAYS,
-            model_tch::NUM_POINTS,
-            angle,
-        );
-
-        let gold: Vec<[f32; 4]> = indices
-            .iter()
-            .map(|[y, x]| imgs[n][y * WIDTH + x])
-            .collect();
-
-        //        let screen_coords: Vec<[f32; model_tch::INDIM]> = indices
-        //            .iter()
-        //            .map(input_transforms::scale_by_screen_size_and_fourier::<3>)
-        //            .collect();
-
-        let predictions = model.predict(
-            points
-                .iter()
-                .map(|ray_points| {
-                    ray_points
-                        .into_iter()
-                        .map(|([x, y, z], _)| [*x, *y, *z, angle])
-                        .collect::<Vec<[f32; 4]>>()
-                })
-                .collect(),
-            points
-                .into_iter()
-                .map(|ray_points| {
-                    ray_points
-                        .into_iter()
-                        .map(|(_, t)| t)
-                        .collect::<Vec<f32>>()
-                        .try_into()
-                        .unwrap()
-                })
-                .collect(),
-        );
-
+        let (indices, query_points, distances, gold) = get_batch(&imgs, iter);
+        let predictions = model.predict(query_points, distances);
         let loss: f32 = model.step(&predictions, gold);
-        // loss & plotting
-        println!(
-            "iter={}, angle={:.4} loss={:.16}",
-            iter,
-            180. * angle / std::f32::consts::PI,
-            loss
-        );
+
+        println!("iter={}, loss={:.16}", iter, loss);
 
         batch_losses.push(loss);
+
         Chart::new(120, 40, 0., batch_losses.len() as f32)
             .lineplot(&Shape::Continuous(Box::new(|x| batch_losses[x as usize])))
             .display();
@@ -148,7 +104,6 @@ fn main() {
                 // bucket_counts_b[f32::floor(world_z) as usize] += prediction[2] as f64;
             }
 
-            writer.add_scalar("angle", 180. * angle / std::f32::consts::PI, iter);
             log_as_hist(&mut writer, "screen_y", bucket_counts_sy, iter);
             log_as_hist(&mut writer, "screen_x", bucket_counts_sx, iter);
             log_as_hist(&mut writer, "world_y", bucket_counts_y, iter);
@@ -182,6 +137,63 @@ fn main() {
 
     run_window(update_window_buffer, WIDTH, HEIGHT);
 }
+
+fn setup() {}
+
+fn get_batch(
+    imgs: &Vec<Vec<[f32; 4]>>,
+    iter: usize,
+) -> (
+    Vec<[usize; 2]>,
+    Vec<Vec<[f32; model_tch::INDIM]>>,
+    Vec<[f32; model_tch::NUM_POINTS]>,
+    Vec<[f32; 4]>,
+) {
+    let n = iter % imgs.len();
+    let angle = (n as f32 / imgs.len() as f32) * std::f32::consts::PI / 2.;
+
+    let (indices, views, points) = ray_sampling::sample_points_tensor_along_view_directions(
+        model_tch::NUM_RAYS,
+        model_tch::NUM_POINTS,
+        angle,
+    );
+
+    let gold: Vec<[f32; 4]> = indices
+        .iter()
+        .map(|[y, x]| imgs[n][y * WIDTH + x])
+        .collect();
+
+    //        let screen_coords: Vec<[f32; model_tch::INDIM]> = indices
+    //            .iter()
+    //            .map(input_transforms::scale_by_screen_size_and_fourier::<3>)
+    //            .collect();
+
+    let query_points = points
+        .iter()
+        .map(|ray_points| {
+            ray_points
+                .into_iter()
+                .map(|([x, y, z], _)| [*x, *y, *z, angle])
+                .collect::<Vec<[f32; 4]>>()
+        })
+        .collect();
+
+    let distances = points
+        .into_iter()
+        .map(|ray_points| {
+            ray_points
+                .into_iter()
+                .map(|(_, t)| t)
+                .collect::<Vec<f32>>()
+                .try_into()
+                .unwrap()
+        })
+        .collect();
+
+    (indices, query_points, distances, gold)
+}
+
+fn eval_step() {}
 
 fn log_as_hist<const RANGE: usize>(
     writer: &mut SummaryWriter,
