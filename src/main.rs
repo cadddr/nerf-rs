@@ -1,8 +1,3 @@
-//We synthesize images by sampling 5D coordinates (location and viewing direction) along camera rays (a),
-//feeding those locations into an MLP to produce a color and volume density (b),
-//  We encourage the representation to be multiview consistent by restricting the network to predict the volume density σ as a function of only the location x,
-//  while allowing the RGB color c to be predicted as a function of both location and viewing direction.
-//and using volume ren- dering techniques to composite these values into an image (c
 mod ray_sampling;
 use ray_sampling::{HEIGHT, T_FAR, WIDTH};
 
@@ -20,38 +15,13 @@ use display::run_window;
 
 use textplots::{Chart, Plot, Shape};
 
-use clap::Parser;
-
 use std::time::SystemTime;
 
 use tensorboard_rs::summary_writer::SummaryWriter;
 
-const DEBUG: bool = false;
-
-#[derive(Parser)]
-struct Cli {
-    #[arg(long, default_value = "spheres/image-0.png")]
-    img_path: String,
-    //    #[arg(long, default_value_t = vec!["spheres/image-0.png".to_string(), "spheres/image-89.png".to_string()])]
-    //    img_paths: Vec<String>,
-    #[arg(long, default_value = "logs")]
-    log_dir: String,
-
-    #[arg(long, default_value = "checkpoints")]
-    save_dir: String,
-
-    #[arg(long, default_value = "")] //checkpoints/checkpoint-1718836047-505.ot")]
-    load_path: String,
-
-    #[arg(long, default_value_t = 50000)]
-    num_iter: usize,
-
-    #[arg(long, default_value_t = 101)]
-    eval_steps: usize,
-
-    #[arg(long, default_value_t = 100)]
-    refresh_epochs: usize,
-}
+mod cli;
+use clap::Parser;
+use cli::Cli;
 
 fn main() {
     /*
@@ -65,18 +35,12 @@ fn main() {
 
     let args = Cli::parse();
 
-    let imgs = image_loading::load_multiple_images_as_arrays(vec![
-        "monkey-128-no-shading/image-0.png",
-        "monkey-128-no-shading/image-40.png",
-        "monkey-128-no-shading/image-80.png",
-        "monkey-128-no-shading/image-120.png",
-        "monkey-128-no-shading/image-160.png",
-        "monkey-128-no-shading/image-200.png",
-        "monkey-128-no-shading/image-240.png",
-        "monkey-128-no-shading/image-280.png",
-        "monkey-128-no-shading/image-320.png",
-        "monkey-128-no-shading/image-359.png",
-    ]); //TODO:
+    let imgs = image_loading::load_multiple_images_as_arrays(image_loading::get_image_paths(
+        args.img_dir,
+        0,
+        360,
+        40,
+    ));
 
     let mut backbuffer = [0; WIDTH * HEIGHT];
 
@@ -212,7 +176,7 @@ fn main() {
             .lineplot(&Shape::Continuous(Box::new(|x| batch_losses[x as usize])))
             .display();
 
-        draw_to_screen(buffer, &backbuffer); //, &img);
+        draw_to_screen(buffer, &backbuffer, args.DEBUG); //, &img);
 
         iter = iter + 1;
         if iter > args.num_iter {
@@ -245,6 +209,7 @@ fn log_as_hist<const RANGE: usize>(
 fn draw_to_screen(
     buffer: &mut Vec<u32>,
     backbuffer: &[u32; WIDTH * HEIGHT], //img: &Vec<[f32; 4]>
+    DEBUG: bool,
 ) {
     // draw from either backbuffer or gold image
     for y in 0..HEIGHT {
