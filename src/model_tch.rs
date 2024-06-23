@@ -262,7 +262,7 @@ impl TchModel {
         mean_compositing(colors)
     }
 
-    pub fn step(&mut self, pred_tensor: Tensor, gold: Vec<[f32; LABELS]>) -> f32 {
+    pub fn step(&mut self, pred_tensor: &Tensor, gold: Vec<[f32; LABELS]>) -> f32 {
         const LABELS_BATCHED: usize = LABELS * NUM_RAYS;
         let gold_flat = array_vec_to_1d_array::<LABELS, LABELS_BATCHED>(gold);
         let gold_tensor = Tensor::of_slice(&gold_flat).view((NUM_RAYS as i64, LABELS as i64));

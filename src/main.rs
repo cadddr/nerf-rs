@@ -40,9 +40,7 @@ fn main() {
         0,
         360,
         40,
-    ));
-
-    let mut backbuffer = [0; WIDTH * HEIGHT];
+    )); // TODO: split into training and held out views
 
     let mut model = model_tch::TchModel::new();
     if args.load_path != "" {
@@ -53,10 +51,13 @@ fn main() {
     let mut writer = SummaryWriter::new(&format!("{}/{}", &args.log_dir, ts));
 
     let mut batch_losses: Vec<f32> = Vec::new();
+
+    // training step takes place inside a window update callback
+    // it used to be such that window was updated with each batch predictions but it takes way too long to draw on each iter
+    let mut backbuffer = [0; WIDTH * HEIGHT];
     let update_window_buffer = |buffer: &mut Vec<u32>| {
         //predict emittance and density
         let n = iter % imgs.len();
-
         let angle = (n as f32 / imgs.len() as f32) * std::f32::consts::PI / 2.;
 
         let (indices, views, points) = ray_sampling::sample_points_tensor_along_view_directions(
@@ -98,14 +99,23 @@ fn main() {
                 .collect(),
         );
 
-        // panic!("{:?}", predictions);
+        let loss: f32 = model.step(&predictions, gold);
+        // loss & plotting
+        println!(
+            "iter={}, angle={:.4} loss={:.16}",
+            iter,
+            180. * angle / std::f32::consts::PI,
+            loss
+        );
+
+        batch_losses.push(loss);
+        Chart::new(120, 40, 0., batch_losses.len() as f32)
+            .lineplot(&Shape::Continuous(Box::new(|x| batch_losses[x as usize])))
+            .display();
+
+        writer.add_scalar("loss", loss, iter);
 
         if iter % args.eval_steps == 0 {
-            // refresh backbuffer every few steps
-            //            if (batch_losses.len() * model.BATCH_SIZE()) % (img.len() * args.refresh_epochs) == 0 {
-            backbuffer = [0; WIDTH * HEIGHT];
-            //            }
-
             let mut bucket_counts_sy: [f64; HEIGHT] = [0.; HEIGHT];
             let mut bucket_counts_sx: [f64; WIDTH] = [0.; WIDTH];
             let mut bucket_counts_y: [f64; 10000 as usize] = [0.; 10000 as usize];
@@ -116,6 +126,7 @@ fn main() {
             let mut bucket_counts_b: [f64; T_FAR as usize] = [0.; T_FAR as usize];
 
             // write batch predictions to backbuffer to display until next eval
+            backbuffer = [0; WIDTH * HEIGHT];
             for
                 ([y, x], prediction) //[world_x, world_y, world_z]
             in indices
@@ -156,27 +167,12 @@ fn main() {
                     .collect::<Vec<u8>>(),
                 &vec![3, WIDTH, HEIGHT][..],
                 iter,
-            );
-            // panic!();
+            ); //TODO probably also save gold view
+
             model.save(&format!("{}/checkpoint-{}-{}.ot", args.save_dir, ts, iter));
         }
 
-        let loss: f32 = model.step(predictions, gold);
-        // loss & plotting
-        println!(
-            "iter={}, angle={:.4} loss={:.16}",
-            iter,
-            180. * angle / std::f32::consts::PI,
-            loss
-        );
-        writer.add_scalar("loss", loss, iter);
-
-        batch_losses.push(loss);
-        Chart::new(120, 40, 0., batch_losses.len() as f32)
-            .lineplot(&Shape::Continuous(Box::new(|x| batch_losses[x as usize])))
-            .display();
-
-        draw_to_screen(buffer, &backbuffer, args.DEBUG); //, &img);
+        draw_to_screen(buffer, &backbuffer, args.DEBUG); // this is needed on each re-draw otherwise screen gets blank
 
         iter = iter + 1;
         if iter > args.num_iter {
