@@ -283,10 +283,6 @@ impl TchModel {
         self.opt.step();
     }
 
-    pub fn get_predictions_as_array_vec(&self, predictions: &Tensor) -> Vec<[f32; LABELS]> {
-        tensor_to_array_vec(&predictions)
-    }
-
     pub fn save(&self, save_path: &str) {
         self.vs.save(&save_path).unwrap();
     }
@@ -294,6 +290,10 @@ impl TchModel {
     pub fn load(&mut self, load_path: &str) {
         self.vs.load(&load_path).unwrap();
     }
+}
+
+pub fn get_predictions_as_array_vec(predictions: &Tensor) -> Vec<[f32; LABELS]> {
+    tensor_to_array_vec(&predictions)
 }
 
 fn array_vec_vec_to_array_vec(vv: Vec<Vec<[f32; INDIM]>>) -> Vec<[f32; INDIM]> {

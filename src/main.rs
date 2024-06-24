@@ -23,6 +23,8 @@ mod cli;
 use clap::Parser;
 use cli::Cli;
 
+use tch::Tensor;
+
 fn main() {
     /*
     Main loop. Reads image(s), inits model, runs train loop (within window refresh handler);
@@ -35,12 +37,8 @@ fn main() {
 
     let args = Cli::parse();
 
-    let imgs = image_loading::load_multiple_images_as_arrays(image_loading::get_image_paths(
-        args.img_dir,
-        0,
-        360,
-        40,
-    )); // TODO: split into training and held out views
+    let img_paths = image_loading::get_image_paths(args.img_dir, 0, 360, 40);
+    let imgs = image_loading::load_multiple_images_as_arrays(img_paths); // TODO: split into training and held out views
 
     let mut model = model_tch::TchModel::new();
     if args.load_path != "" {
@@ -62,6 +60,7 @@ fn main() {
         let loss: f32 = model.step(&predictions, gold);
 
         println!("iter={}, loss={:.16}", iter, loss);
+        writer.add_scalar("loss", loss, iter);
 
         batch_losses.push(loss);
 
@@ -69,60 +68,9 @@ fn main() {
             .lineplot(&Shape::Continuous(Box::new(|x| batch_losses[x as usize])))
             .display();
 
-        writer.add_scalar("loss", loss, iter);
-
         if iter % args.eval_steps == 0 {
-            let mut bucket_counts_sy: [f64; HEIGHT] = [0.; HEIGHT];
-            let mut bucket_counts_sx: [f64; WIDTH] = [0.; WIDTH];
-            let mut bucket_counts_y: [f64; 10000 as usize] = [0.; 10000 as usize];
-            let mut bucket_counts_x: [f64; 10000 as usize] = [0.; 10000 as usize];
-            let mut bucket_counts_z: [f64; T_FAR as usize] = [0.; T_FAR as usize];
-            let mut bucket_counts_r: [f64; WIDTH as usize] = [0.; WIDTH as usize];
-            let mut bucket_counts_g: [f64; T_FAR as usize] = [0.; T_FAR as usize];
-            let mut bucket_counts_b: [f64; T_FAR as usize] = [0.; T_FAR as usize];
-
-            // write batch predictions to backbuffer to display until next eval
             backbuffer = [0; WIDTH * HEIGHT];
-            for
-                ([y, x], prediction) //[world_x, world_y, world_z]
-            in indices
-                .iter()
-                .zip(model.get_predictions_as_array_vec(&predictions).into_iter())
-                // .zip(points)
-                .into_iter()
-            {
-                backbuffer[y * WIDTH + x] = prediction_array_as_u32(&prediction);
-                bucket_counts_sy[*y] += 1.;
-                bucket_counts_sx[*x] += 1.;
-                // bucket_counts_y[f32::floor(1000. * world_y) as usize] += 1.;
-                // bucket_counts_x[f32::floor(1000. * world_x) as usize] += 1.;
-                // bucket_counts_z[f32::floor(world_z) as usize] += 1.;
-                if *y == HEIGHT - 1 {
-                    bucket_counts_r[f32::floor(*x as f32) as usize] = prediction[0] as f64;
-                }
-                // bucket_counts_g[f32::floor(world_z) as usize] += prediction[1] as f64;
-                // bucket_counts_b[f32::floor(world_z) as usize] += prediction[2] as f64;
-            }
-
-            log_as_hist(&mut writer, "screen_y", bucket_counts_sy, iter);
-            log_as_hist(&mut writer, "screen_x", bucket_counts_sx, iter);
-            log_as_hist(&mut writer, "world_y", bucket_counts_y, iter);
-            log_as_hist(&mut writer, "world_x", bucket_counts_x, iter);
-            log_as_hist(&mut writer, "world_z", bucket_counts_z, iter);
-            log_as_hist(&mut writer, "density_r", bucket_counts_r, iter);
-            log_as_hist(&mut writer, "density_g", bucket_counts_g, iter);
-            log_as_hist(&mut writer, "density_b", bucket_counts_b, iter);
-
-            writer.add_image(
-                "prediction",
-                &backbuffer
-                    .iter()
-                    .map(rgba_to_u8_array)
-                    .flatten()
-                    .collect::<Vec<u8>>(),
-                &vec![3, WIDTH, HEIGHT][..],
-                iter,
-            ); //TODO probably also save gold view
+            draw_train_predictions(&mut backbuffer, indices, predictions, iter, &mut writer);
 
             model.save(&format!("{}/checkpoint-{}-{}.ot", args.save_dir, ts, iter));
         }
@@ -137,8 +85,6 @@ fn main() {
 
     run_window(update_window_buffer, WIDTH, HEIGHT);
 }
-
-fn setup() {}
 
 fn get_batch(
     imgs: &Vec<Vec<[f32; 4]>>,
@@ -193,7 +139,64 @@ fn get_batch(
     (indices, query_points, distances, gold)
 }
 
-fn eval_step() {}
+fn draw_train_predictions(
+    backbuffer: &mut [u32; WIDTH * HEIGHT],
+    indices: Vec<[usize; 2]>,
+    predictions: Tensor,
+    iter: usize,
+    writer: &mut SummaryWriter,
+) {
+    let mut bucket_counts_sy: [f64; HEIGHT] = [0.; HEIGHT];
+    let mut bucket_counts_sx: [f64; WIDTH] = [0.; WIDTH];
+    let mut bucket_counts_y: [f64; 10000 as usize] = [0.; 10000 as usize];
+    let mut bucket_counts_x: [f64; 10000 as usize] = [0.; 10000 as usize];
+    let mut bucket_counts_z: [f64; T_FAR as usize] = [0.; T_FAR as usize];
+    let mut bucket_counts_r: [f64; WIDTH as usize] = [0.; WIDTH as usize];
+    let mut bucket_counts_g: [f64; T_FAR as usize] = [0.; T_FAR as usize];
+    let mut bucket_counts_b: [f64; T_FAR as usize] = [0.; T_FAR as usize];
+
+    // write batch predictions to backbuffer to display until next eval
+    for
+            ([y, x], prediction) //[world_x, world_y, world_z]
+        in indices
+            .iter()
+            .zip(model_tch::get_predictions_as_array_vec(&predictions).into_iter())
+            // .zip(points)
+            .into_iter()
+        {
+            backbuffer[y * WIDTH + x] = prediction_array_as_u32(&prediction);
+            bucket_counts_sy[*y] += 1.;
+            bucket_counts_sx[*x] += 1.;
+            // bucket_counts_y[f32::floor(1000. * world_y) as usize] += 1.;
+            // bucket_counts_x[f32::floor(1000. * world_x) as usize] += 1.;
+            // bucket_counts_z[f32::floor(world_z) as usize] += 1.;
+            if *y == HEIGHT - 1 {
+                bucket_counts_r[f32::floor(*x as f32) as usize] = prediction[0] as f64;
+            }
+            // bucket_counts_g[f32::floor(world_z) as usize] += prediction[1] as f64;
+            // bucket_counts_b[f32::floor(world_z) as usize] += prediction[2] as f64;
+        }
+
+    log_as_hist(writer, "screen_y", bucket_counts_sy, iter);
+    log_as_hist(writer, "screen_x", bucket_counts_sx, iter);
+    log_as_hist(writer, "world_y", bucket_counts_y, iter);
+    log_as_hist(writer, "world_x", bucket_counts_x, iter);
+    log_as_hist(writer, "world_z", bucket_counts_z, iter);
+    log_as_hist(writer, "density_r", bucket_counts_r, iter);
+    log_as_hist(writer, "density_g", bucket_counts_g, iter);
+    log_as_hist(writer, "density_b", bucket_counts_b, iter);
+
+    writer.add_image(
+        "prediction",
+        &backbuffer
+            .iter()
+            .map(rgba_to_u8_array)
+            .flatten()
+            .collect::<Vec<u8>>(),
+        &vec![3, WIDTH, HEIGHT][..],
+        iter,
+    ); //TODO probably also save gold view
+}
 
 fn log_as_hist<const RANGE: usize>(
     writer: &mut SummaryWriter,
