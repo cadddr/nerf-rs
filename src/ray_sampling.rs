@@ -83,6 +83,25 @@ fn sample_points_along_ray(
     //     .collect::<Vec<[f32; 4]>>();
 }
 
+pub fn sample_points_tensor_for_rays(
+    indices: Vec<[usize; 2]>,
+    num_points: usize,
+    angle: f32,
+) -> Vec<Vec<([f32; 3], f32)>> {
+    indices
+        .iter()
+        .map(|[y, x]| {
+            screen_space_to_world_space(*x as f32, *y as f32, WIDTH as f32, HEIGHT as f32)
+        })
+        .map(|to| {
+            sample_points_along_ray(FROM, to, num_points)
+                .iter()
+                .map(|pt| (rotate(pt.0, angle), pt.1))
+                .collect()
+        })
+        .collect()
+}
+
 pub fn sample_points_tensor_along_view_directions(
     num_rays: usize,
     num_points: usize,

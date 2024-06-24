@@ -1,4 +1,5 @@
 mod ray_sampling;
+use model_tch::TchModel;
 use ray_sampling::{HEIGHT, T_FAR, WIDTH};
 
 mod image_loading;
@@ -70,8 +71,8 @@ fn main() {
 
         if iter % args.eval_steps == 0 {
             backbuffer = [0; WIDTH * HEIGHT];
-            draw_train_predictions(&mut backbuffer, indices, predictions, iter, &mut writer);
-
+            // draw_train_predictions(&mut backbuffer, indices, predictions, iter, &mut writer);
+            draw_valid_predictions(&mut backbuffer, iter, 0., &model);
             model.save(&format!("{}/checkpoint-{}-{}.ot", args.save_dir, ts, iter));
         }
 
@@ -137,6 +138,75 @@ fn get_batch(
         .collect();
 
     (indices, query_points, distances, gold)
+}
+
+fn draw_valid_predictions(
+    backbuffer: &mut [u32; WIDTH * HEIGHT],
+    iter: usize,
+    angle: f32,
+    model: &TchModel,
+) {
+    let mut indices: Vec<[usize; 2]> = Vec::new();
+
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            indices.push([y as usize, x as usize])
+        }
+    }
+
+    for batch_index in (0..indices.len() - 1).step_by(model_tch::NUM_RAYS) {
+        println!(
+            "evaluating batch {:?} - {:?} out of {:?}",
+            batch_index * model_tch::NUM_RAYS,
+            (batch_index + 1) * model_tch::NUM_RAYS,
+            indices.len()
+        );
+        let indices_batch: Vec<[usize; 2]> = indices
+            [batch_index * model_tch::NUM_RAYS..(batch_index + 1) * model_tch::NUM_RAYS]
+            .try_into()
+            .unwrap();
+
+        let points = ray_sampling::sample_points_tensor_for_rays(
+            indices_batch,
+            model_tch::NUM_POINTS,
+            angle,
+        );
+
+        let query_points = points
+            .iter()
+            .map(|ray_points| {
+                ray_points
+                    .into_iter()
+                    .map(|([x, y, z], _)| [*x, *y, *z, angle])
+                    .collect::<Vec<[f32; 4]>>()
+            })
+            .collect();
+
+        let distances = points
+            .into_iter()
+            .map(|ray_points| {
+                ray_points
+                    .into_iter()
+                    .map(|(_, t)| t)
+                    .collect::<Vec<f32>>()
+                    .try_into()
+                    .unwrap()
+            })
+            .collect();
+
+        let predictions = model.predict(query_points, distances);
+
+        for
+                ([y, x], prediction) //[world_x, world_y, world_z]
+            in indices
+                .iter()
+                .zip(model_tch::get_predictions_as_array_vec(&predictions).into_iter())
+                // .zip(points)
+                .into_iter()
+            {
+                backbuffer[y * WIDTH + x] = prediction_array_as_u32(&prediction);
+            }
+    }
 }
 
 fn draw_train_predictions(
