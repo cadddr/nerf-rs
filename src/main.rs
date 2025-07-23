@@ -55,25 +55,30 @@ fn main() {
     // it used to be such that window was updated with each batch predictions but it takes way too long to draw on each iter
     let mut backbuffer = [0; WIDTH * HEIGHT];
     let update_window_buffer = |buffer: &mut Vec<u32>| {
-        //predict emittance and density
-        let (indices, query_points, distances, gold) = get_batch(&imgs, iter);
-        let predictions = model.predict(query_points, distances);
-        let loss: f32 = model.step(&predictions, gold);
+        if args.do_train {
+            //predict emittance and density
+            let (indices, query_points, distances, gold) = get_batch(&imgs, iter);
+            let predictions = model.predict(query_points, distances);
+            let loss: f32 = model.step(&predictions, gold);
 
-        println!("iter={}, loss={:.16}", iter, loss);
-        writer.add_scalar("loss", loss, iter);
+            println!("iter={}, loss={:.16}", iter, loss);
+            writer.add_scalar("loss", loss, iter);
 
-        batch_losses.push(loss);
+            batch_losses.push(loss);
 
-        Chart::new(120, 40, 0., batch_losses.len() as f32)
-            .lineplot(&Shape::Continuous(Box::new(|x| batch_losses[x as usize])))
-            .display();
-
+            Chart::new(120, 40, 0., batch_losses.len() as f32)
+                .lineplot(&Shape::Continuous(Box::new(|x| batch_losses[x as usize])))
+                .display();
+        }
         if iter % args.eval_steps == 0 {
             backbuffer = [0; WIDTH * HEIGHT];
             // draw_train_predictions(&mut backbuffer, indices, predictions, iter, &mut writer);
-            draw_valid_predictions(&mut backbuffer, iter, 0., &model);
-            model.save(&format!("{}/checkpoint-{}-{}.ot", args.save_dir, ts, iter));
+            // let n = iter % imgs.len();
+            let angle = (iter as f32 / 180.) * std::f32::consts::PI;// / 2. + std::f32::consts::PI / 4.;
+            draw_valid_predictions(&mut backbuffer, iter, angle, &model);
+            if args.save_dir != "" {
+                model.save(&format!("{}/checkpoint-{}-{}.ot", args.save_dir, ts, iter));
+            }
         }
 
         draw_to_screen(buffer, &backbuffer, args.DEBUG); // this is needed on each re-draw otherwise screen gets blank
@@ -156,8 +161,10 @@ fn draw_valid_predictions(
 
     for batch_index in (0..indices.len() - 1).step_by(model_tch::NUM_RAYS) {
         println!(
-            "evaluating batch {:?} - {:?} out of {:?}",
+            "evaluating batch {:?} iter {:?} angle {:?} - {:?} out of {:?}",
             batch_index * model_tch::NUM_RAYS,
+            iter,
+            angle,
             (batch_index + 1) * model_tch::NUM_RAYS,
             indices.len()
         );

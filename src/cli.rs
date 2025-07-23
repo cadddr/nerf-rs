@@ -5,22 +5,25 @@ pub struct Cli {
     #[arg(long, default_value_t = false)]
     pub DEBUG: bool,
 
+    #[arg(long, default_value_t = false)]
+    pub do_train: bool,
+
     #[arg(long, default_value = "spheres-128-no-shading")]
     pub img_dir: String,
 
     #[arg(long, default_value = "logs")]
     pub log_dir: String,
 
-    #[arg(long, default_value = "checkpoints")]
+    #[arg(long, default_value = "")]
     pub save_dir: String,
 
-    #[arg(long, default_value = "")] //checkpoints/checkpoint-1718836047-505.ot")]
+    #[arg(long, default_value = "checkpoints/checkpoint-1753303468-8484.ot")] //checkpoints/checkpoint-1718836047-505.ot")]
     pub load_path: String,
 
     #[arg(long, default_value_t = 50000)]
     pub num_iter: usize,
 
-    #[arg(long, default_value_t = 101)]
+    #[arg(long, default_value_t = 5)]
     pub eval_steps: usize,
 
     #[arg(long, default_value_t = 100)]
