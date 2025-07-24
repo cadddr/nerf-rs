@@ -292,7 +292,7 @@ impl TchModel {
     }
 }
 
-pub fn get_predictions_as_array_vec(predictions: &Tensor) -> Vec<[f32; LABELS]> {
+pub fn get_predictions_as_array_vec(predictions: &Tensor) -> Vec<Vec<f32>> {
     tensor_to_array_vec(&predictions)
 }
 
@@ -319,19 +319,11 @@ fn array_vec_to_1d_array<const INNER_DIM: usize, const OUT_DIM: usize>(
     return array;
 }
 
-pub fn tensor_to_array_vec(a: &Tensor) -> Vec<[f32; LABELS]> {
-    let mut v = Vec::new();
-
-    for i in 0..a.size()[0] {
-        let mut r = [0f32; LABELS];
-        for j in 0..LABELS - 1 {
-            r[j] = a.double_value(&[i as i64, j as i64]) as f32;
-        }
-        r[LABELS - 1] = 1.0; // HACK:
-        v.push(r);
-    }
-    return v;
+pub fn tensor_to_array_vec(a: &Tensor) -> Vec<Vec<f32>> {
+    // return Vec::<f32>::try_from(&a.reshape(-1)).unwrap()
+    return Vec::<Vec::<f32>>::try_from(a.to_kind(Kind::Float).to_device(Device::Cpu)).unwrap();
 }
+
 
 fn mse_loss(x: &Tensor, y: &Tensor) -> Tensor {
     let diff = x - y;

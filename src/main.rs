@@ -38,7 +38,7 @@ fn main() {
 
     let args = Cli::parse();
 
-    let img_paths = image_loading::get_image_paths(args.img_dir, 0, 360, 40);
+    let img_paths = image_loading::get_image_paths(args.img_dir, 0, 360, 30);
     let imgs = image_loading::load_multiple_images_as_arrays(img_paths); // TODO: split into training and held out views
 
     let mut model = model_tch::TchModel::new();
@@ -55,10 +55,11 @@ fn main() {
     // it used to be such that window was updated with each batch predictions but it takes way too long to draw on each iter
     let mut backbuffer = [0; WIDTH * HEIGHT];
     let update_window_buffer = |buffer: &mut Vec<u32>| {
+        //predict emittance and density
+        let (indices, query_points, distances, gold) = get_batch(&imgs, iter);
+        let predictions = model.predict(query_points, distances);
+
         if args.do_train {
-            //predict emittance and density
-            let (indices, query_points, distances, gold) = get_batch(&imgs, iter);
-            let predictions = model.predict(query_points, distances);
             let loss: f32 = model.step(&predictions, gold);
 
             println!("iter={}, loss={:.16}", iter, loss);
@@ -69,16 +70,16 @@ fn main() {
             Chart::new(120, 40, 0., batch_losses.len() as f32)
                 .lineplot(&Shape::Continuous(Box::new(|x| batch_losses[x as usize])))
                 .display();
+
+            if iter % args.save_steps == 0 {
+                model.save(&format!("{}/checkpoint-{}-{}.ot", args.save_dir, ts, iter));
+            }
         }
         if iter % args.eval_steps == 0 {
             backbuffer = [0; WIDTH * HEIGHT];
             // draw_train_predictions(&mut backbuffer, indices, predictions, iter, &mut writer);
-            // let n = iter % imgs.len();
             let angle = (iter as f32 / 180.) * std::f32::consts::PI;// / 2. + std::f32::consts::PI / 4.;
-            draw_valid_predictions(&mut backbuffer, iter, angle, &model);
-            if args.save_dir != "" {
-                model.save(&format!("{}/checkpoint-{}-{}.ot", args.save_dir, ts, iter));
-            }
+            draw_valid_predictions(&mut backbuffer, iter, angle % (2. * std::f32::consts::PI) , &model);
         }
 
         draw_to_screen(buffer, &backbuffer, args.DEBUG); // this is needed on each re-draw otherwise screen gets blank
@@ -102,7 +103,7 @@ fn get_batch(
     Vec<[f32; 4]>,
 ) {
     let n = iter % imgs.len();
-    let angle = (n as f32 / imgs.len() as f32) * std::f32::consts::PI / 2.;
+    let angle = (n as f32 / imgs.len() as f32) * 2. * std::f32::consts::PI;
 
     let (indices, views, points) = ray_sampling::sample_points_tensor_along_view_directions(
         model_tch::NUM_RAYS,
@@ -179,7 +180,7 @@ fn draw_valid_predictions(
             angle,
         );
 
-        let query_points = points
+        let query_points: Vec<Vec<[f32; model_tch::INDIM]>> = points
             .iter()
             .map(|ray_points| {
                 ray_points
@@ -189,7 +190,7 @@ fn draw_valid_predictions(
             })
             .collect();
 
-        let distances = points
+        let distances: Vec<[f32; model_tch::NUM_POINTS]> = points
             .into_iter()
             .map(|ray_points| {
                 ray_points
@@ -211,8 +212,38 @@ fn draw_valid_predictions(
                 // .zip(points)
                 .into_iter()
             {
-                backbuffer[y * WIDTH + x] = prediction_array_as_u32(&prediction);
+                backbuffer[y * WIDTH + x] = prediction_array_as_u32(&[prediction[0], prediction[1], prediction[2], 1.]);
             }
+
+
+        // pub fn tensor_to_array_vec(a: &Tensor) -> Vec<[f32; LABELS]> {
+        //     let mut v = Vec::new();
+
+        //     for i in 0..a.size()[0] {
+        //         let mut r = [0f32; LABELS];
+        //         for j in 0..LABELS - 1 {
+        //             r[j] = a.double_value(&[i as i64, j as i64]) as f32;
+        //         }
+        //         r[LABELS - 1] = 1.0; // HACK:
+        //         v.push(r);
+        //     }
+        //     return v;
+        // }
+
+
+        // let predictions_vec = predictions.to_kind(Kind::Float).to_device(Device::Cpu);
+        // let predictions_slice = predictions_vec.data::<f32>().unwrap();
+        // let pred_chunks = predictions_slice.chunks(LABELS);
+
+        // for (i, prediction) in pred_chunks.enumerate() {
+        //     let [y, x] = indices[i];
+        //     backbuffer[y * WIDTH + x] = prediction_array_as_u32(&[
+        //         prediction[0],
+        //         prediction[1],
+        //         prediction[2],
+        //         1.0  // Alpha channel
+        //     ]);
+        //     }
     }
 }
 
@@ -241,7 +272,7 @@ fn draw_train_predictions(
             // .zip(points)
             .into_iter()
         {
-            backbuffer[y * WIDTH + x] = prediction_array_as_u32(&prediction);
+            backbuffer[y * WIDTH + x] = prediction_array_as_u32(&[prediction[0], prediction[1], prediction[2], 1.]);
             bucket_counts_sy[*y] += 1.;
             bucket_counts_sx[*x] += 1.;
             // bucket_counts_y[f32::floor(1000. * world_y) as usize] += 1.;
