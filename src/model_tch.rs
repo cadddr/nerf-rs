@@ -246,20 +246,20 @@ impl TchModel {
             .sigmoid()
             .view((NUM_RAYS as i64, NUM_POINTS as i64, LABELS as i64)); //.sigmoid(); // TODO: need batch first?
 
-        // let distances_flat = array_vec_to_1d_array::<NUM_POINTS, BATCH_SIZE>(distances); // TODO: check
-        // let mut distances_tensor =
-        //     Tensor::of_slice(&distances_flat).view((NUM_RAYS as i64, NUM_POINTS as i64));
+        let distances_flat = array_vec_to_1d_array::<NUM_POINTS, BATCH_SIZE>(distances); // TODO: check
+        let mut distances_tensor =
+            Tensor::of_slice(&distances_flat).view((NUM_RAYS as i64, NUM_POINTS as i64));
 
-        // let tfar = Tensor::of_slice(&[10f32; NUM_RAYS]).unsqueeze(1);
+        let tfar = Tensor::of_slice(&[10f32; NUM_RAYS]).unsqueeze(1);
 
-        // distances_tensor = Tensor::concat(
-        //     &[distances_tensor.slice(1, 1, NUM_POINTS as i64, 1), tfar], // TODO: check distances calculation
-        //     1,
-        // ) - distances_tensor;
+        distances_tensor = Tensor::concat(
+            &[distances_tensor.slice(1, 1, NUM_POINTS as i64, 1), tfar], // TODO: check distances calculation
+            1,
+        ) - distances_tensor;
 
-        // compositing(densities, colors, distances_tensor.to(Device::Mps))
+        compositing(densities, colors, distances_tensor.to(Device::Mps))
         // colors.print();
-        mean_compositing(colors)
+        // mean_compositing(colors)
     }
 
     pub fn step(&mut self, pred_tensor: &Tensor, gold: Vec<[f32; LABELS]>) -> f32 {

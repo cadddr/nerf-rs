@@ -38,7 +38,7 @@ fn main() {
 
     let args = Cli::parse();
 
-    let img_paths = image_loading::get_image_paths(args.img_dir, 0, 360, 30);
+    let img_paths = image_loading::get_image_paths(args.img_dir, 0, 360, 10);
     let imgs = image_loading::load_multiple_images_as_arrays(img_paths); // TODO: split into training and held out views
 
     let mut model = model_tch::TchModel::new();
