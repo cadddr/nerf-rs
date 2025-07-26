@@ -27,7 +27,7 @@ pub struct Cli {
     // checkpoint-1753303468-8484.ot")
     // checkpoint-1718944888-11413.ot
     // checkpoint-1718941373-6161.ot
-    #[arg(long, default_value = "checkpoints/checkpoint-1753484141-20000.ot")]
+    #[arg(long, default_value = "checkpoints/checkpoint-1753504574-8000.ot")]
     pub load_path: String,
 
     #[arg(long, default_value_t = 50000)]

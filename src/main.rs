@@ -204,7 +204,7 @@ fn draw_valid_predictions(
         }
     }
 
-    for batch_index in (0..indices.len()).step_by(model_tch::NUM_RAYS) {
+    for batch_index in (0..indices.len() / model_tch::NUM_RAYS) {
         println!(
             "evaluating batch {:?} iter {:?} angle {:?} - {:?} out of {:?}",
             batch_index * model_tch::NUM_RAYS,
@@ -250,7 +250,7 @@ fn draw_valid_predictions(
 
         for
                 ([y, x], prediction) //[world_x, world_y, world_z]
-            in indices//[batch_index * model_tch::NUM_RAYS..(batch_index + 1) * model_tch::NUM_RAYS]
+            in indices[batch_index * model_tch::NUM_RAYS..(batch_index + 1) * model_tch::NUM_RAYS]
                 .iter()
                 .zip(model_tch::get_predictions_as_array_vec(&predictions).into_iter())
                 // .zip(points)

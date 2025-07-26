@@ -3,8 +3,8 @@ use tch::{
     nn, nn::Module, nn::Optimizer, nn::OptimizerConfig, nn::Sequential, Device, Kind, Tensor,
 };
 
-pub const NUM_RAYS: usize = 16384;
-pub const NUM_POINTS: usize = 16;
+pub const NUM_RAYS: usize = 128;
+pub const NUM_POINTS: usize = 128;
 pub const BATCH_SIZE: usize = NUM_RAYS * NUM_POINTS;
 
 pub const INDIM: usize = 3;
