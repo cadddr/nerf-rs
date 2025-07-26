@@ -4,10 +4,10 @@ use tch::{
 };
 
 pub const NUM_RAYS: usize = 16384;
-pub const NUM_POINTS: usize = 4;
+pub const NUM_POINTS: usize = 16;
 pub const BATCH_SIZE: usize = NUM_RAYS * NUM_POINTS;
 
-pub const INDIM: usize = 4;
+pub const INDIM: usize = 3;
 const HIDDEN_NODES: i64 = 100;
 const LABELS: usize = 4;
 
@@ -22,6 +22,7 @@ struct Net {
     fc7: nn::Linear,
     fc8: nn::Linear,
     fc9: nn::Linear,
+    fc10: nn::Linear,
 }
 
 impl Net {
@@ -38,7 +39,13 @@ impl Net {
         let fc8 = nn::linear(vs, HIDDEN_NODES, HIDDEN_NODES + 1, Default::default());
         // This feature vector is then concatenated with the camera ray’s viewing direction and passed to one additional
         // fully-connected layer (using a ReLU activation and 128 channels) that output the view-dependent RGB color.
-        let fc9 = nn::linear(vs, HIDDEN_NODES, LABELS as i64, Default::default());
+        let fc9 = nn::linear(
+            vs,
+            HIDDEN_NODES,
+            HIDDEN_NODES / 2 as i64,
+            Default::default(),
+        );
+        let fc10 = nn::linear(vs, HIDDEN_NODES / 2, LABELS as i64, Default::default());
         Net {
             fc1,
             fc2,
@@ -49,6 +56,7 @@ impl Net {
             fc7,
             fc8,
             fc9,
+            fc10,
         }
     }
 }
@@ -70,132 +78,11 @@ impl nn::ModuleT for Net {
             .relu()
             .apply(&self.fc7)
             .relu()
-            .apply(&self.fc8)
-            .relu();
+            .apply(&self.fc8);
+        // .relu();
 
         return densities_features;
-
-        // Tensor::narrow
-
-        // .sigmoid()
-        // .view((NUM_RAYS as i64, LABELS as i64, NUM_POINTS as i64))
-        // // .mean_dim(Some([1i64].as_slice()), false, Kind::Float)
-        // .avg_pool1d(
-        //     &[NUM_POINTS as i64],
-        //     &[1 as i64],
-        //     &[0 as i64],
-        //     // &[1 as i64],
-        //     false,
-        //     false,
-        // )
-        // .view((NUM_RAYS as i64, LABELS as i64));
     }
-}
-
-fn accumulated_transmittance(densities: &Tensor, distances: &Tensor, i: i64) -> Tensor {
-    let result = (densities.slice(1 as i64, 0, i - 1, 1) * distances.slice(1 as i64, 0, i - 1, 1))
-        .sum_dim_intlist(Some([1i64].as_slice()), false, Kind::Float)
-        .exp();
-
-    return result;
-}
-
-fn mean_compositing(colors: Tensor) -> Tensor {
-    colors
-        // .view((NUM_RAYS as i64, NUM_POINTS as i64, LABELS as i64))
-        .mean_dim(Some([1i64].as_slice()), false, Kind::Float)
-}
-
-fn sum_compositing(colors: Tensor) -> Tensor {
-    colors
-        // .view((NUM_RAYS as i64, NUM_POINTS as i64, LABELS as i64))
-        .sum_dim_intlist(Some([1i64].as_slice()), false, Kind::Float)
-}
-
-fn select_compositing(colors: Tensor) -> Tensor {
-    println!("before {:?}", colors);
-    colors.get(0).print();
-
-    let result = //(
-        colors
-        // .view((NUM_POINTS as i64, NUM_RAYS as i64, LABELS as i64))
-        .permute(&[1, 0, 2])
-        .get(0);
-    // + colors
-    //     // .view((NUM_POINTS as i64, NUM_RAYS as i64, LABELS as i64))
-    //     .permute(&[1, 0, 2])
-    //     .get(1))
-    // / 2.0;
-
-    println!("after {:?}", result);
-    result.get(0).print();
-
-    // println!(
-    //     "stacked {:?}",
-    //     Tensor::stack(&[&result, &result], 0).permute(&[1, 0, 2])
-    // );
-    // (colors - Tensor::stack(&[&result, &result], 0).permute(&[1, 0, 2]))
-    //     .abs()
-    //     .max()
-    //     .print();
-    // result.get(result.size1().unwrap() - 1).print();
-    result
-    // panic!();
-    // .view((NUM_RAYS as i64, NUM_POINTS as i64, LABELS as i64))
-}
-
-#[test]
-fn transpose_order_test() {
-    let rays = 3;
-    let pts = 2;
-    let lbl = 4;
-    let a = Tensor::of_slice(&[
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
-    ]);
-    a.reshape(&[rays, pts, lbl]).print();
-
-    // a.reshape(&[pts, rays, lbl])
-    //     // .get(0)
-    //     .print(); // wrong
-
-    a.view((rays, pts, lbl)).permute(&[1, 0, 2]).print();
-}
-
-#[test]
-fn flatten_order_test() {
-    let rays = 3;
-    let pts = 2;
-    let lbl = 4;
-    let a = Tensor::of_slice(&[
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
-    ]);
-
-    a.reshape(&[rays, pts, lbl]).print();
-    a.reshape(&[rays * pts, lbl]).print();
-    a.reshape(&[rays * pts, lbl])
-        .reshape(&[rays, pts, lbl])
-        .print();
-}
-
-fn compositing(densities: Tensor, colors: Tensor, distances: Tensor) -> Tensor {
-    let tensor_vector: Vec<Tensor> = (0..NUM_POINTS)
-        .map(|i| accumulated_transmittance(&densities, &distances, i as i64))
-        .collect();
-
-    let tensor_array: [Tensor; NUM_POINTS] = tensor_vector.try_into().unwrap();
-
-    let T = Tensor::stack(&tensor_array, 0).view((NUM_RAYS as i64, NUM_POINTS as i64)); //TODO: check shaping/ordering
-
-    let weights = (T * (1. as f32 - (-densities * distances).exp())).unsqueeze(2);
-    // weights.softmax(1, Kind::Float).print();
-
-    let final_colors: Tensor = (weights.softmax(1, Kind::Float) * colors).sum_dim_intlist(
-        Some([1i64].as_slice()),
-        false,
-        Kind::Float,
-    );
-
-    return final_colors;
 }
 
 use tch::nn::ModuleT;
@@ -218,7 +105,7 @@ impl TchModel {
 
     pub fn predict(
         &self,
-        coords: Vec<Vec<[f32; INDIM]>>,
+        coords: Vec<Vec<[f32; INDIM]>>, // viewing direction should only go through fc9
         distances: Vec<[f32; NUM_POINTS]>,
     ) -> Tensor {
         const INDIM_BATCHED: usize = INDIM * BATCH_SIZE;
@@ -238,11 +125,13 @@ impl TchModel {
 
         let features = densities_features
             .view((NUM_RAYS as i64, NUM_POINTS as i64, HIDDEN_NODES + 1 as i64))
-            .slice(2 as i64, 1, HIDDEN_NODES + 1, 1);
+            .slice(2 as i64, 1, HIDDEN_NODES + 1, 1); // should concat with view dir, not drop density
 
         let colors = features
             .view((BATCH_SIZE as i64, HIDDEN_NODES))
             .apply(&self.net.fc9)
+            .relu()
+            .apply(&self.net.fc10)
             .sigmoid()
             .view((NUM_RAYS as i64, NUM_POINTS as i64, LABELS as i64)); //.sigmoid(); // TODO: need batch first?
 
@@ -255,7 +144,7 @@ impl TchModel {
         distances_tensor = Tensor::concat(
             &[distances_tensor.slice(1, 1, NUM_POINTS as i64, 1), tfar], // TODO: check distances calculation
             1,
-        ) - distances_tensor;
+        ) - distances_tensor; // distances between adjacent samples, eq. (3)
 
         compositing(densities, colors, distances_tensor.to(Device::Mps))
         // colors.print();
@@ -292,6 +181,75 @@ impl TchModel {
     }
 }
 
+fn mean_compositing(colors: Tensor) -> Tensor {
+    colors
+        // .view((NUM_RAYS as i64, NUM_POINTS as i64, LABELS as i64))
+        .mean_dim(Some([1i64].as_slice()), false, Kind::Float)
+}
+
+#[test]
+fn transpose_order_test() {
+    let rays = 3;
+    let pts = 2;
+    let lbl = 4;
+    let a = Tensor::of_slice(&[
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+    ]);
+    a.reshape(&[rays, pts, lbl]).print();
+
+    // a.reshape(&[pts, rays, lbl])
+    //     // .get(0)
+    //     .print(); // wrong
+
+    a.view((rays, pts, lbl)).permute(&[1, 0, 2]).print();
+}
+
+#[test]
+fn flatten_order_test() {
+    let rays = 3;
+    let pts = 2;
+    let lbl = 4;
+    let a = Tensor::of_slice(&[
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+    ]);
+
+    a.reshape(&[rays, pts, lbl]).print();
+    a.reshape(&[rays * pts, lbl]).print();
+    a.reshape(&[rays * pts, lbl])
+        .reshape(&[rays, pts, lbl])
+        .print();
+}
+
+// eq. (3)
+fn accumulated_transmittance(densities: &Tensor, distances: &Tensor, i: i64) -> Tensor {
+    let result = (densities.slice(1 as i64, 0, i - 1, 1) * distances.slice(1 as i64, 0, i - 1, 1)) // should just be sum of densities up to t
+        .sum_dim_intlist(Some([1i64].as_slice()), false, Kind::Float)
+        .neg()
+        .exp();
+
+    return result;
+}
+
+fn compositing(densities: Tensor, colors: Tensor, distances: Tensor) -> Tensor {
+    let tensor_vector: Vec<Tensor> = (0..NUM_POINTS)
+        .map(|i| accumulated_transmittance(&densities, &distances, i as i64))
+        .collect();
+
+    let tensor_array: [Tensor; NUM_POINTS] = tensor_vector.try_into().unwrap();
+
+    let T = Tensor::stack(&tensor_array, 0).view((NUM_RAYS as i64, NUM_POINTS as i64)); //TODO: check shaping/ordering
+
+    let weights = (T * (1. as f32 - (densities * distances).neg().exp())).unsqueeze(2);
+    // weights.softmax(1, Kind::Float).print();
+
+    let final_colors: Tensor = (weights
+        // .softmax(1, Kind::Float)
+    * colors)
+        .sum_dim_intlist(Some([1i64].as_slice()), false, Kind::Float);
+
+    return final_colors;
+}
+
 pub fn get_predictions_as_array_vec(predictions: &Tensor) -> Vec<Vec<f32>> {
     tensor_to_array_vec(&predictions)
 }
@@ -321,9 +279,8 @@ fn array_vec_to_1d_array<const INNER_DIM: usize, const OUT_DIM: usize>(
 
 pub fn tensor_to_array_vec(a: &Tensor) -> Vec<Vec<f32>> {
     // return Vec::<f32>::try_from(&a.reshape(-1)).unwrap()
-    return Vec::<Vec::<f32>>::try_from(a.to_kind(Kind::Float).to_device(Device::Cpu)).unwrap();
+    return Vec::<Vec<f32>>::try_from(a.to_kind(Kind::Float).to_device(Device::Cpu)).unwrap();
 }
-
 
 fn mse_loss(x: &Tensor, y: &Tensor) -> Tensor {
     let diff = x - y;

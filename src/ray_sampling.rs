@@ -12,7 +12,7 @@ const UP: [f32; 3] = [0., 1., 0.];
 const FROM: [f32; 3] = [0., 0., -1.];
 const AT: [f32; 3] = [0., 0., 1.];
 
-pub const T_FAR: f32 = 10.;
+pub const T_FAR: f32 = 2.;
 
 pub const WIDTH: usize = 128;
 pub const HEIGHT: usize = 128;
@@ -57,10 +57,8 @@ fn sample_points_along_ray(
 
     // 0.5 * T_FAR;
     for i in 0..NUM_SAMPLES {
-        let t = random::<f32>();
-        let point = //vec3_add(from,
-        vec3_scale(to, t);
-        //);
+        let t = random::<f32>() * (T_FAR - HITHER) + HITHER;
+        let point = vec3_add(from, vec3_scale(to, t));
         points.push(point);
         locations.push(t);
     }

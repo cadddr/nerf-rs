@@ -7,7 +7,7 @@ mod image_loading;
 mod input_transforms;
 
 mod model_dfdx;
-use model_dfdx::{prediction_array_as_u32, rgba_to_u8_array};
+use model_dfdx::{from_u8_rgb, prediction_array_as_u32, rgba_to_u8_array};
 
 mod model_tch;
 
@@ -38,7 +38,7 @@ fn main() {
 
     let args = Cli::parse();
 
-    let img_paths = image_loading::get_image_paths(args.img_dir, 0, 360, 10);
+    let img_paths = image_loading::get_image_paths(args.img_dir, 0, 360, 15); // maybe restrict to 180 to avoid possible ray bugs
     let imgs = image_loading::load_multiple_images_as_arrays(img_paths); // TODO: split into training and held out views
 
     let mut model = model_tch::TchModel::new();
@@ -57,6 +57,11 @@ fn main() {
     let update_window_buffer = |buffer: &mut Vec<u32>| {
         //predict emittance and density
         let (indices, query_points, distances, gold) = get_batch(&imgs, iter);
+
+        if iter % args.logging_steps == 0 {
+            log_query_points(&mut writer, &query_points, &distances, iter);
+        }
+
         let predictions = model.predict(query_points, distances);
 
         if args.do_train {
@@ -77,12 +82,20 @@ fn main() {
         }
         if iter % args.eval_steps == 0 {
             backbuffer = [0; WIDTH * HEIGHT];
-            // draw_train_predictions(&mut backbuffer, indices, predictions, iter, &mut writer);
-            let angle = (iter as f32 / 180.) * std::f32::consts::PI;// / 2. + std::f32::consts::PI / 4.;
-            draw_valid_predictions(&mut backbuffer, iter, angle % (2. * std::f32::consts::PI) , &model);
+            if args.eval_on_train {
+                draw_train_predictions(&mut backbuffer, indices, predictions, iter, &mut writer);
+            } else {
+                let angle = (iter as f32 / 180.) * std::f32::consts::PI; // / 2. + std::f32::consts::PI / 4.;
+                draw_valid_predictions(
+                    &mut backbuffer,
+                    iter,
+                    angle % (2. * std::f32::consts::PI),
+                    &model,
+                );
+            }
         }
 
-        draw_to_screen(buffer, &backbuffer, args.DEBUG); // this is needed on each re-draw otherwise screen gets blank
+        draw_to_screen(buffer, &backbuffer, args.DEBUG, &imgs, &iter); // this is needed on each re-draw otherwise screen gets blank
 
         iter = iter + 1;
         if iter > args.num_iter {
@@ -91,6 +104,37 @@ fn main() {
     };
 
     run_window(update_window_buffer, WIDTH, HEIGHT);
+}
+
+fn log_query_points(
+    writer: &mut SummaryWriter,
+    query_points: &Vec<Vec<[f32; 3]>>,
+    distances: &Vec<[f32; model_tch::NUM_POINTS]>,
+    iter: usize,
+) {
+    let mut bucket_counts_y: [f64; 2000 as usize] = [0.; 2000 as usize];
+    let mut bucket_counts_x: [f64; 2000 as usize] = [0.; 2000 as usize];
+    let mut bucket_counts_z: [f64; 2000 as usize] = [0.; 2000 as usize];
+    let mut bucket_counts_t: [f64; 2000 as usize] = [0.; 2000 as usize];
+
+    for ray_points in query_points {
+        for [world_x, world_y, world_z] in ray_points {
+            bucket_counts_y[f32::floor(500. * (world_y + 1.)) as usize] += 1.;
+            bucket_counts_x[f32::floor(500. * (world_x + 1.)) as usize] += 1.;
+            bucket_counts_z[f32::floor(500. * (world_z + 1.)) as usize] += 1.;
+        }
+    }
+
+    for ray_distances in distances {
+        for t in ray_distances {
+            bucket_counts_t[f32::floor(500. * t) as usize] += 1.;
+        }
+    }
+
+    log_as_hist(writer, "world_y", bucket_counts_y, iter);
+    log_as_hist(writer, "world_x", bucket_counts_x, iter);
+    log_as_hist(writer, "world_z", bucket_counts_z, iter);
+    log_as_hist(writer, "t", bucket_counts_t, iter);
 }
 
 fn get_batch(
@@ -109,7 +153,7 @@ fn get_batch(
         model_tch::NUM_RAYS,
         model_tch::NUM_POINTS,
         angle,
-    );
+    ); // need mix rays from multiple views
 
     let gold: Vec<[f32; 4]> = indices
         .iter()
@@ -121,13 +165,13 @@ fn get_batch(
     //            .map(input_transforms::scale_by_screen_size_and_fourier::<3>)
     //            .collect();
 
-    let query_points = points
+    let query_points: Vec<Vec<[f32; 3]>> = points
         .iter()
         .map(|ray_points| {
             ray_points
                 .into_iter()
-                .map(|([x, y, z], _)| [*x, *y, *z, angle])
-                .collect::<Vec<[f32; 4]>>()
+                .map(|([x, y, z], _)| [*x, *y, *z])
+                .collect::<Vec<[f32; 3]>>()
         })
         .collect();
 
@@ -160,7 +204,7 @@ fn draw_valid_predictions(
         }
     }
 
-    for batch_index in (0..indices.len() - 1).step_by(model_tch::NUM_RAYS) {
+    for batch_index in (0..indices.len()).step_by(model_tch::NUM_RAYS) {
         println!(
             "evaluating batch {:?} iter {:?} angle {:?} - {:?} out of {:?}",
             batch_index * model_tch::NUM_RAYS,
@@ -185,8 +229,8 @@ fn draw_valid_predictions(
             .map(|ray_points| {
                 ray_points
                     .into_iter()
-                    .map(|([x, y, z], _)| [*x, *y, *z, angle])
-                    .collect::<Vec<[f32; 4]>>()
+                    .map(|([x, y, z], _)| [*x, *y, *z])
+                    .collect::<Vec<[f32; 3]>>()
             })
             .collect();
 
@@ -206,7 +250,7 @@ fn draw_valid_predictions(
 
         for
                 ([y, x], prediction) //[world_x, world_y, world_z]
-            in indices
+            in indices//[batch_index * model_tch::NUM_RAYS..(batch_index + 1) * model_tch::NUM_RAYS]
                 .iter()
                 .zip(model_tch::get_predictions_as_array_vec(&predictions).into_iter())
                 // .zip(points)
@@ -214,36 +258,6 @@ fn draw_valid_predictions(
             {
                 backbuffer[y * WIDTH + x] = prediction_array_as_u32(&[prediction[0], prediction[1], prediction[2], 1.]);
             }
-
-
-        // pub fn tensor_to_array_vec(a: &Tensor) -> Vec<[f32; LABELS]> {
-        //     let mut v = Vec::new();
-
-        //     for i in 0..a.size()[0] {
-        //         let mut r = [0f32; LABELS];
-        //         for j in 0..LABELS - 1 {
-        //             r[j] = a.double_value(&[i as i64, j as i64]) as f32;
-        //         }
-        //         r[LABELS - 1] = 1.0; // HACK:
-        //         v.push(r);
-        //     }
-        //     return v;
-        // }
-
-
-        // let predictions_vec = predictions.to_kind(Kind::Float).to_device(Device::Cpu);
-        // let predictions_slice = predictions_vec.data::<f32>().unwrap();
-        // let pred_chunks = predictions_slice.chunks(LABELS);
-
-        // for (i, prediction) in pred_chunks.enumerate() {
-        //     let [y, x] = indices[i];
-        //     backbuffer[y * WIDTH + x] = prediction_array_as_u32(&[
-        //         prediction[0],
-        //         prediction[1],
-        //         prediction[2],
-        //         1.0  // Alpha channel
-        //     ]);
-        //     }
     }
 }
 
@@ -256,9 +270,7 @@ fn draw_train_predictions(
 ) {
     let mut bucket_counts_sy: [f64; HEIGHT] = [0.; HEIGHT];
     let mut bucket_counts_sx: [f64; WIDTH] = [0.; WIDTH];
-    let mut bucket_counts_y: [f64; 10000 as usize] = [0.; 10000 as usize];
-    let mut bucket_counts_x: [f64; 10000 as usize] = [0.; 10000 as usize];
-    let mut bucket_counts_z: [f64; T_FAR as usize] = [0.; T_FAR as usize];
+
     let mut bucket_counts_r: [f64; WIDTH as usize] = [0.; WIDTH as usize];
     let mut bucket_counts_g: [f64; T_FAR as usize] = [0.; T_FAR as usize];
     let mut bucket_counts_b: [f64; T_FAR as usize] = [0.; T_FAR as usize];
@@ -275,24 +287,20 @@ fn draw_train_predictions(
             backbuffer[y * WIDTH + x] = prediction_array_as_u32(&[prediction[0], prediction[1], prediction[2], 1.]);
             bucket_counts_sy[*y] += 1.;
             bucket_counts_sx[*x] += 1.;
-            // bucket_counts_y[f32::floor(1000. * world_y) as usize] += 1.;
-            // bucket_counts_x[f32::floor(1000. * world_x) as usize] += 1.;
-            // bucket_counts_z[f32::floor(world_z) as usize] += 1.;
-            if *y == HEIGHT - 1 {
-                bucket_counts_r[f32::floor(*x as f32) as usize] = prediction[0] as f64;
-            }
+
+            // if *y == HEIGHT - 1 {
+            //     bucket_counts_r[f32::floor(*x as f32) as usize] = prediction[0] as f64;
+            // }
             // bucket_counts_g[f32::floor(world_z) as usize] += prediction[1] as f64;
             // bucket_counts_b[f32::floor(world_z) as usize] += prediction[2] as f64;
         }
 
     log_as_hist(writer, "screen_y", bucket_counts_sy, iter);
     log_as_hist(writer, "screen_x", bucket_counts_sx, iter);
-    log_as_hist(writer, "world_y", bucket_counts_y, iter);
-    log_as_hist(writer, "world_x", bucket_counts_x, iter);
-    log_as_hist(writer, "world_z", bucket_counts_z, iter);
-    log_as_hist(writer, "density_r", bucket_counts_r, iter);
-    log_as_hist(writer, "density_g", bucket_counts_g, iter);
-    log_as_hist(writer, "density_b", bucket_counts_b, iter);
+
+    // log_as_hist(writer, "density_r", bucket_counts_r, iter);
+    // log_as_hist(writer, "density_g", bucket_counts_g, iter);
+    // log_as_hist(writer, "density_b", bucket_counts_b, iter);
 
     writer.add_image(
         "prediction",
@@ -329,17 +337,19 @@ fn draw_to_screen(
     buffer: &mut Vec<u32>,
     backbuffer: &[u32; WIDTH * HEIGHT], //img: &Vec<[f32; 4]>
     DEBUG: bool,
+    imgs: &Vec<Vec<[f32; 4]>>,
+    iter: &usize,
 ) {
     // draw from either backbuffer or gold image
     for y in 0..HEIGHT {
         for x in 0..WIDTH {
             if DEBUG {
-                //                let gold = img[y * WIDTH + x];
-                //                buffer[y * WIDTH + x] = from_u8_rgb(
-                //                    (gold[0] * 255.) as u8,
-                //                    (gold[1] * 255.) as u8,
-                //                    (gold[2] * 255.) as u8,
-                //                );
+                let gold = imgs[iter % imgs.len()][y * WIDTH + x];
+                buffer[y * WIDTH + x] = from_u8_rgb(
+                    (gold[0] * 255.) as u8,
+                    (gold[1] * 255.) as u8,
+                    (gold[2] * 255.) as u8,
+                );
             } else {
                 buffer[y * WIDTH + x] = backbuffer[y * WIDTH + x];
             }
