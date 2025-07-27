@@ -1,3 +1,4 @@
+use crate::ray_sampling::T_FAR;
 use dfdx::tensor_ops::sigmoid;
 use tch::{
     nn, nn::Module, nn::Optimizer, nn::OptimizerConfig, nn::Sequential, Device, Kind, Tensor,
@@ -122,7 +123,7 @@ impl TchModel {
             .permute(&[2, 0, 1])
             .get(0);
         // .sigmoid();
-        return densities;
+        // return densities;
 
         let features = densities_features
             .view((NUM_RAYS as i64, NUM_POINTS as i64, HIDDEN_NODES + 1 as i64))
@@ -140,7 +141,7 @@ impl TchModel {
         let mut distances_tensor =
             Tensor::of_slice(&distances_flat).view((NUM_RAYS as i64, NUM_POINTS as i64));
 
-        let tfar = Tensor::of_slice(&[10f32; NUM_RAYS]).unsqueeze(1);
+        let tfar = Tensor::of_slice(&[T_FAR; NUM_RAYS]).unsqueeze(1);
 
         distances_tensor = Tensor::concat(
             &[distances_tensor.slice(1, 1, NUM_POINTS as i64, 1), tfar], // TODO: check distances calculation
@@ -223,12 +224,28 @@ fn flatten_order_test() {
 
 // eq. (3)
 fn accumulated_transmittance(densities: &Tensor, distances: &Tensor, i: i64) -> Tensor {
-    let result = (densities.slice(1 as i64, 0, i - 1, 1) * distances.slice(1 as i64, 0, i - 1, 1)) // should just be sum of densities up to t
+    if i == 0 {
+        // First sample has full transmittance
+        return Tensor::ones(&[NUM_RAYS as i64], (Kind::Float, densities.device()));
+    }
+    let result = (densities.slice(1 as i64, 0, i, 1) * distances.slice(1 as i64, 0, i, 1)) // should just be sum of densities up to i - 1
         .sum_dim_intlist(Some([1i64].as_slice()), false, Kind::Float)
         .neg()
         .exp();
 
     return result;
+}
+
+#[test]
+fn off_by_one_slice() {
+    for i in (0..NUM_POINTS) {
+        println!["{:?}", i];
+    }
+
+    assert_eq![
+        Tensor::of_slice(&[1, 2, 3]).slice(0, 0, 2, 1),
+        Tensor::of_slice(&[1, 2, 3])
+    ]
 }
 
 fn compositing(densities: Tensor, colors: Tensor, distances: Tensor) -> Tensor {
