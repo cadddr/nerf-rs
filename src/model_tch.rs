@@ -122,6 +122,7 @@ impl TchModel {
             .permute(&[2, 0, 1])
             .get(0);
         // .sigmoid();
+        return densities;
 
         let features = densities_features
             .view((NUM_RAYS as i64, NUM_POINTS as i64, HIDDEN_NODES + 1 as i64))

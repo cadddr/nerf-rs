@@ -11,6 +11,9 @@ pub struct Cli {
     #[arg(long, default_value_t = false)]
     pub eval_on_train: bool,
 
+    #[arg(long, default_value_t = true)]
+    pub log_densities_only: bool,
+
     #[arg(long, default_value = "monkey-128-no-shading")]
     pub img_dir: String,
 
@@ -27,19 +30,19 @@ pub struct Cli {
     // checkpoint-1753303468-8484.ot")
     // checkpoint-1718944888-11413.ot
     // checkpoint-1718941373-6161.ot
-    #[arg(long, default_value = "checkpoints/checkpoint-1753504574-8000.ot")]
+    #[arg(long, default_value = "checkpoints/checkpoint-1753511632-49049.ot")]
     pub load_path: String,
 
-    #[arg(long, default_value_t = 50000)]
+    #[arg(long, default_value_t = 24)]
     pub num_iter: usize,
 
-    #[arg(long, default_value_t = 15)]
+    #[arg(long, default_value_t = 5)]
     pub eval_steps: usize,
 
-    #[arg(long, default_value_t = 1001)]
+    #[arg(long, default_value_t = 1)]
     pub logging_steps: usize,
 
-    #[arg(long, default_value_t = 1000)]
+    #[arg(long, default_value_t = 1001)]
     pub save_steps: usize,
 
     #[arg(long, default_value_t = 100)]

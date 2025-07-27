@@ -57,12 +57,22 @@ fn main() {
     let update_window_buffer = |buffer: &mut Vec<u32>| {
         //predict emittance and density
         let (indices, query_points, distances, gold) = get_batch(&imgs, iter);
+        let query_points_copy = query_points.clone();
 
         if iter % args.logging_steps == 0 {
             log_query_points(&mut writer, &query_points, &distances, iter);
         }
 
         let predictions = model.predict(query_points, distances);
+
+        if iter % args.logging_steps == 0 && args.log_densities_only {
+            log_density_maps(
+                &mut writer,
+                &query_points_copy,
+                model_tch::get_predictions_as_array_vec(&predictions),
+                iter,
+            );
+        }
 
         if args.do_train {
             let loss: f32 = model.step(&predictions, gold);
@@ -82,16 +92,24 @@ fn main() {
         }
         if iter % args.eval_steps == 0 {
             backbuffer = [0; WIDTH * HEIGHT];
-            if args.eval_on_train {
-                draw_train_predictions(&mut backbuffer, indices, predictions, iter, &mut writer);
-            } else {
-                let angle = (iter as f32 / 180.) * std::f32::consts::PI; // / 2. + std::f32::consts::PI / 4.;
-                draw_valid_predictions(
-                    &mut backbuffer,
-                    iter,
-                    angle % (2. * std::f32::consts::PI),
-                    &model,
-                );
+            if !args.log_densities_only {
+                if args.eval_on_train {
+                    draw_train_predictions(
+                        &mut backbuffer,
+                        indices,
+                        predictions,
+                        iter,
+                        &mut writer,
+                    );
+                } else {
+                    let angle = (iter as f32 / 180.) * std::f32::consts::PI; // / 2. + std::f32::consts::PI / 4.;
+                    draw_valid_predictions(
+                        &mut backbuffer,
+                        iter,
+                        angle % (2. * std::f32::consts::PI),
+                        &model,
+                    );
+                }
             }
         }
 
@@ -135,6 +153,94 @@ fn log_query_points(
     log_as_hist(writer, "world_x", bucket_counts_x, iter);
     log_as_hist(writer, "world_z", bucket_counts_z, iter);
     log_as_hist(writer, "t", bucket_counts_t, iter);
+}
+
+fn log_densities(
+    writer: &mut SummaryWriter,
+    query_points: &Vec<Vec<[f32; 3]>>,
+    densities: Vec<Vec<f32>>,
+    iter: usize,
+) {
+    let mut bucket_counts_y: [f64; 2000 as usize] = [0.; 2000 as usize];
+    let mut bucket_counts_x: [f64; 2000 as usize] = [0.; 2000 as usize];
+    let mut bucket_counts_z: [f64; 2000 as usize] = [0.; 2000 as usize];
+
+    for (ray_points, ray_densities) in query_points.iter().zip(densities) {
+        for ([world_x, world_y, world_z], density) in ray_points.iter().zip(ray_densities) {
+            let y = f32::floor(500. * (world_y + 1.)) as usize;
+            let x = f32::floor(500. * (world_x + 1.)) as usize;
+            let z = f32::floor(500. * (world_z + 1.)) as usize;
+
+            bucket_counts_y[y] += density as f64;
+            bucket_counts_x[x] += density as f64;
+            bucket_counts_z[z] += density as f64;
+        }
+    }
+
+    log_as_hist(writer, "density_y", bucket_counts_y, iter);
+    log_as_hist(writer, "density_x", bucket_counts_x, iter);
+    log_as_hist(writer, "density_z", bucket_counts_z, iter);
+}
+
+fn log_density_maps(
+    writer: &mut SummaryWriter,
+    query_points: &Vec<Vec<[f32; 3]>>,
+    densities: Vec<Vec<f32>>,
+    iter: usize,
+) {
+    let backbuffer_yx: &mut [u32; 100 * 100] = &mut [0u32; 100 * 100];
+    let backbuffer_zx: &mut [u32; 100 * 100] = &mut [0u32; 100 * 100];
+    let backbuffer_yz: &mut [u32; 100 * 100] = &mut [0u32; 100 * 100];
+    for (ray_points, ray_densities) in query_points.iter().zip(densities) {
+        for ([world_x, world_y, world_z], density) in ray_points.iter().zip(ray_densities) {
+            let y = f32::floor(50. * (world_y + 1.)) as usize;
+            let x = f32::floor(50. * (world_x + 1.)) as usize;
+            let z = f32::floor(25. * (world_z + 1.)) as usize;
+
+            let density_clamped = density.max(0.);
+
+            backbuffer_yx[y * 100 + x] =
+                prediction_array_as_u32(&[density_clamped, density_clamped, density_clamped, 1.]);
+
+            backbuffer_zx[z * 100 + x] =
+                prediction_array_as_u32(&[density_clamped, density_clamped, density_clamped, 1.]);
+
+            backbuffer_yz[y * 100 + z] =
+                prediction_array_as_u32(&[density_clamped, density_clamped, density_clamped, 1.]);
+        }
+    }
+
+    writer.add_image(
+        "density_yx",
+        &backbuffer_yx
+            .iter()
+            .map(rgba_to_u8_array)
+            .flatten()
+            .collect::<Vec<u8>>(),
+        &vec![3, 100, 100][..],
+        iter,
+    );
+    writer.add_image(
+        "density_zx",
+        &backbuffer_zx
+            .iter()
+            .map(rgba_to_u8_array)
+            .flatten()
+            .collect::<Vec<u8>>(),
+        &vec![3, 100, 100][..],
+        iter,
+    );
+
+    writer.add_image(
+        "density_yz",
+        &backbuffer_yz
+            .iter()
+            .map(rgba_to_u8_array)
+            .flatten()
+            .collect::<Vec<u8>>(),
+        &vec![3, 100, 100][..],
+        iter,
+    );
 }
 
 fn get_batch(
@@ -271,9 +377,9 @@ fn draw_train_predictions(
     let mut bucket_counts_sy: [f64; HEIGHT] = [0.; HEIGHT];
     let mut bucket_counts_sx: [f64; WIDTH] = [0.; WIDTH];
 
-    let mut bucket_counts_r: [f64; WIDTH as usize] = [0.; WIDTH as usize];
-    let mut bucket_counts_g: [f64; T_FAR as usize] = [0.; T_FAR as usize];
-    let mut bucket_counts_b: [f64; T_FAR as usize] = [0.; T_FAR as usize];
+    // let mut bucket_counts_r: [f64; WIDTH as usize] = [0.; WIDTH as usize];
+    // let mut bucket_counts_g: [f64; T_FAR as usize] = [0.; T_FAR as usize];
+    // let mut bucket_counts_b: [f64; T_FAR as usize] = [0.; T_FAR as usize];
 
     // write batch predictions to backbuffer to display until next eval
     for
