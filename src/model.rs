@@ -1,8 +1,6 @@
 use crate::ray_sampling::T_FAR;
-use dfdx::tensor_ops::sigmoid;
-use tch::{
-    nn, nn::Module, nn::Optimizer, nn::OptimizerConfig, nn::Sequential, Device, Kind, Tensor,
-};
+use tch::nn::ModuleT;
+use tch::{nn, nn::Optimizer, nn::OptimizerConfig, Device, Kind, Tensor};
 
 pub const NUM_RAYS: usize = 4096;
 pub const NUM_POINTS: usize = 16;
@@ -13,7 +11,7 @@ const HIDDEN_NODES: i64 = 100;
 const LABELS: usize = 4;
 
 #[derive(Debug)]
-struct Net {
+struct DensityNet {
     fc1: nn::Linear,
     fc2: nn::Linear,
     fc3: nn::Linear,
@@ -22,12 +20,16 @@ struct Net {
     fc6: nn::Linear,
     fc7: nn::Linear,
     fc8: nn::Linear,
-    // fc9: nn::Linear,
-    // fc10: nn::Linear,
 }
 
-impl Net {
-    fn new(vs: &nn::Path) -> Net {
+#[derive(Debug)]
+struct RadianceNet {
+    fc9: nn::Linear,
+    fc10: nn::Linear,
+}
+
+impl DensityNet {
+    fn new(vs: &nn::Path) -> DensityNet {
         // the MLP FΘ first processes the input 3D coordinate x with 8 fully-connected layers (using ReLU activations and 256 channels per layer)
         // and outputs σ and a 256-dimensional feature vector.
         let fc1 = nn::linear(vs, INDIM as i64, HIDDEN_NODES, Default::default());
@@ -38,16 +40,8 @@ impl Net {
         let fc6 = nn::linear(vs, HIDDEN_NODES, HIDDEN_NODES, Default::default());
         let fc7 = nn::linear(vs, HIDDEN_NODES, HIDDEN_NODES, Default::default());
         let fc8 = nn::linear(vs, HIDDEN_NODES, HIDDEN_NODES + 1, Default::default());
-        // This feature vector is then concatenated with the camera ray’s viewing direction and passed to one additional
-        // fully-connected layer (using a ReLU activation and 128 channels) that output the view-dependent RGB color.
-        // let fc9 = nn::linear(
-        //     vs,
-        //     HIDDEN_NODES,
-        //     HIDDEN_NODES / 2 as i64,
-        //     Default::default(),
-        // );
-        // let fc10 = nn::linear(vs, HIDDEN_NODES / 2, LABELS as i64, Default::default());
-        Net {
+
+        DensityNet {
             fc1,
             fc2,
             fc3,
@@ -62,7 +56,23 @@ impl Net {
     }
 }
 
-impl nn::ModuleT for Net {
+impl RadianceNet {
+    fn new(vs: &nn::Path) -> RadianceNet {
+        // This feature vector is then concatenated with the camera ray’s viewing direction and passed to one additional
+        // fully-connected layer (using a ReLU activation and 128 channels) that output the view-dependent RGB color.
+        let fc9 = nn::linear(
+            vs,
+            HIDDEN_NODES,
+            HIDDEN_NODES / 2 as i64,
+            Default::default(),
+        );
+        let fc10 = nn::linear(vs, HIDDEN_NODES / 2, LABELS as i64, Default::default());
+
+        RadianceNet { fc9, fc10 }
+    }
+}
+
+impl nn::ModuleT for DensityNet {
     fn forward_t(&self, xs: &Tensor, train: bool) -> Tensor {
         let densities_features = xs
             .apply(&self.fc1)
@@ -80,28 +90,42 @@ impl nn::ModuleT for Net {
             .apply(&self.fc7)
             .relu()
             .apply(&self.fc8);
-        // .relu();
 
         return densities_features;
     }
 }
 
-use tch::nn::ModuleT;
-use vecmath::traits::Float;
+impl nn::ModuleT for RadianceNet {
+    fn forward_t(&self, features: &Tensor, train: bool) -> Tensor {
+        let colors = features
+            .view((BATCH_SIZE as i64, HIDDEN_NODES))
+            .apply(&self.fc9)
+            .relu()
+            .apply(&self.fc10)
+            .sigmoid()
+            .view((NUM_RAYS as i64, NUM_POINTS as i64, LABELS as i64));
 
-pub struct TchModel {
-    vs: nn::VarStore,
-    net: Net,
-    opt: Optimizer,
+        colors
+    }
 }
 
-impl TchModel {
-    pub fn new() -> TchModel {
-        let vs = nn::VarStore::new(Device::Mps);
-        let net = Net::new(&vs.root()); //net(&vs.root());
-        let opt = nn::Adam::default().build(&vs, 5e-4).unwrap();
+pub struct NeRF {
+    pub vs: nn::VarStore,
+    density: DensityNet,
+    radiance: RadianceNet,
+}
 
-        TchModel { vs, net, opt }
+impl NeRF {
+    pub fn new() -> NeRF {
+        let vs = nn::VarStore::new(Device::Mps);
+        let density = DensityNet::new(&vs.root());
+        let radiance = RadianceNet::new(&vs.root());
+
+        NeRF {
+            vs,
+            density,
+            radiance,
+        }
     }
 
     pub fn predict(
@@ -110,32 +134,24 @@ impl TchModel {
         distances: Vec<[f32; NUM_POINTS]>,
     ) -> (Tensor, Tensor) {
         const INDIM_BATCHED: usize = INDIM * BATCH_SIZE;
+
         let coords_flat =
             array_vec_to_1d_array::<INDIM, INDIM_BATCHED>(array_vec_vec_to_array_vec(coords));
-
         let coords_tensor = Tensor::of_slice(&coords_flat).view((BATCH_SIZE as i64, INDIM as i64));
-        // coords_tensor.print();
-        let densities_features = self.net.forward_t(&coords_tensor.to(Device::Mps), true);
+
+        let densities_features = self.density.forward_t(&coords_tensor.to(Device::Mps), true);
 
         let densities = densities_features
-            // .view((HIDDEN_NODES + 1 as i64, NUM_RAYS as i64, NUM_POINTS as i64))
             .view((NUM_RAYS as i64, NUM_POINTS as i64, HIDDEN_NODES + 1 as i64))
             .permute(&[2, 0, 1])
             .get(0);
-        // .sigmoid();
-        // return densities;
 
-        // let features = densities_features
-        // .view((NUM_RAYS as i64, NUM_POINTS as i64, HIDDEN_NODES + 1 as i64))
-        // .slice(2 as i64, 1, HIDDEN_NODES + 1, 1); // should concat with view dir, not drop density
+        let features = densities_features
+            .view((NUM_RAYS as i64, NUM_POINTS as i64, HIDDEN_NODES + 1 as i64))
+            .slice(2 as i64, 1, HIDDEN_NODES + 1, 1) // should concat with view dir, not drop density
+            .view((BATCH_SIZE as i64, HIDDEN_NODES));
 
-        // let colors = features
-        //     .view((BATCH_SIZE as i64, HIDDEN_NODES))
-        //     .apply(&self.net.fc9)
-        //     .relu()
-        //     .apply(&self.net.fc10)
-        //     .sigmoid()
-        //     .view((NUM_RAYS as i64, NUM_POINTS as i64, LABELS as i64)); //.sigmoid(); // TODO: need batch first?
+        let colors = self.radiance.forward_t(&features, true);
 
         let distances_flat = array_vec_to_1d_array::<NUM_POINTS, BATCH_SIZE>(distances); // TODO: check
         let mut distances_tensor =
@@ -144,14 +160,10 @@ impl TchModel {
         let tfar = Tensor::of_slice(&[T_FAR; NUM_RAYS]).unsqueeze(1);
 
         distances_tensor = Tensor::concat(
-            &[distances_tensor.slice(1, 1, NUM_POINTS as i64, 1), tfar], // TODO: check distances calculation
+            &[distances_tensor.slice(1, 1, NUM_POINTS as i64, 1), tfar],
             1,
         ) - distances_tensor; // distances between adjacent samples, eq. (3)
 
-        // panic![
-        //     "{:?}",
-        //     Tensor::stack(&[&densities, &densities, &densities], 0).permute(&[1, 2, 0])
-        // ];
         return (
             compositing(
                 &densities,
@@ -172,45 +184,6 @@ impl TchModel {
             ),
             densities,
         );
-    }
-
-    pub fn step(
-        &mut self,
-        pred_tensor: &Tensor,
-        gold: Vec<[f32; LABELS]>,
-        iter: &usize,
-        accumulation_steps: usize,
-    ) -> f32 {
-        const LABELS_BATCHED: usize = LABELS * NUM_RAYS;
-        let gold_flat = array_vec_to_1d_array::<LABELS, LABELS_BATCHED>(gold);
-        let gold_tensor = Tensor::of_slice(&gold_flat).view((NUM_RAYS as i64, LABELS as i64));
-        let loss = mse_loss(&pred_tensor, &gold_tensor.to(Device::Mps));
-        // self.backward_scale_grad_step(&loss);
-        // self.opt.backward_step(&loss);
-        self.grad_accumulation_step(&loss, iter, accumulation_steps);
-
-        return f32::try_from(&loss).unwrap();
-    }
-
-    fn grad_accumulation_step(&mut self, loss: &Tensor, iter: &usize, accumulation_steps: usize) {
-        if iter % accumulation_steps == 0 {
-            self.opt.zero_grad();
-        }
-        loss.backward();
-
-        if iter % accumulation_steps == 0 {
-            self.opt.step();
-        }
-    }
-
-    fn backward_scale_grad_step(&mut self, loss: &Tensor) {
-        self.opt.zero_grad();
-        loss.backward();
-        for var in self.vs.trainable_variables() {
-            let mut grad = var.grad();
-            grad *= NUM_POINTS as f32;
-        }
-        self.opt.step();
     }
 
     pub fn save(&self, save_path: &str) {
@@ -307,6 +280,62 @@ fn compositing(densities: &Tensor, colors: Tensor, distances: Tensor) -> Tensor 
     return final_colors;
 }
 
+fn mse_loss(x: &Tensor, y: &Tensor) -> Tensor {
+    let diff = x - y;
+    (&diff * &diff).mean(Kind::Float)
+}
+
+pub struct Trainer {
+    opt: Optimizer,
+}
+
+impl Trainer {
+    pub fn new(vs: &nn::VarStore) -> Trainer {
+        let opt = nn::Adam::default().build(&vs, 5e-4).unwrap();
+        Trainer { opt }
+    }
+
+    pub fn step(
+        &mut self,
+        pred_tensor: &Tensor,
+        gold: Vec<[f32; LABELS]>,
+        iter: &usize,
+        accumulation_steps: usize,
+    ) -> f32 {
+        const LABELS_BATCHED: usize = LABELS * NUM_RAYS;
+        let gold_flat = array_vec_to_1d_array::<LABELS, LABELS_BATCHED>(gold);
+        let gold_tensor = Tensor::of_slice(&gold_flat).view((NUM_RAYS as i64, LABELS as i64));
+        let loss = mse_loss(&pred_tensor, &gold_tensor.to(Device::Mps));
+
+        // self.backward_scale_grad_step(&loss);
+        // self.opt.backward_step(&loss);
+        self.grad_accumulation_step(&loss, iter, accumulation_steps);
+
+        return f32::try_from(&loss).unwrap();
+    }
+
+    fn grad_accumulation_step(&mut self, loss: &Tensor, iter: &usize, accumulation_steps: usize) {
+        if iter % accumulation_steps == 0 {
+            self.opt.zero_grad();
+        }
+        loss.backward();
+
+        if iter % accumulation_steps == 0 {
+            self.opt.step();
+        }
+    }
+
+    fn backward_scale_grad_step(&mut self, loss: &Tensor) {
+        self.opt.zero_grad();
+        loss.backward();
+        for var in self.opt.trainable_variables() {
+            let mut grad = var.grad();
+            grad *= NUM_POINTS as f32;
+        }
+        self.opt.step();
+    }
+}
+
 pub fn get_predictions_as_array_vec(predictions: &Tensor) -> Vec<Vec<f32>> {
     tensor_to_array_vec(&predictions)
 }
@@ -335,11 +364,5 @@ fn array_vec_to_1d_array<const INNER_DIM: usize, const OUT_DIM: usize>(
 }
 
 pub fn tensor_to_array_vec(a: &Tensor) -> Vec<Vec<f32>> {
-    // return Vec::<f32>::try_from(&a.reshape(-1)).unwrap()
     return Vec::<Vec<f32>>::try_from(a.to_kind(Kind::Float).to_device(Device::Cpu)).unwrap();
-}
-
-fn mse_loss(x: &Tensor, y: &Tensor) -> Tensor {
-    let diff = x - y;
-    (&diff * &diff).mean(Kind::Float)
 }

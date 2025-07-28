@@ -1,9 +1,8 @@
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use clap::{ArgMatches, CommandFactory, Parser};
+use clap::{CommandFactory, Parser};
 
-#[derive(Parser, Serialize)]
+#[derive(Parser)]
 pub struct Cli {
     #[arg(long, default_value_t = false)]
     pub DEBUG: bool,
@@ -40,7 +39,7 @@ pub struct Cli {
     #[arg(long, default_value_t = 50000)]
     pub num_iter: usize,
 
-    #[arg(long, default_value_t = 1001)]
+    #[arg(long, default_value_t = 101)]
     pub eval_steps: usize,
 
     #[arg(long, default_value_t = 1001)]
