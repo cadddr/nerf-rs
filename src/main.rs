@@ -24,6 +24,9 @@ mod cli;
 use clap::Parser;
 use cli::Cli;
 
+use rand::seq::SliceRandom;
+use rand::thread_rng;
+use std::collections::HashMap;
 use tch::Tensor;
 
 fn main() {
@@ -38,8 +41,8 @@ fn main() {
 
     let args = Cli::parse();
 
-    let img_paths = image_loading::get_image_paths(args.img_dir, 0, 360, 15); // maybe restrict to 180 to avoid possible ray bugs
-    let imgs = image_loading::load_multiple_images_as_arrays(img_paths); // TODO: split into training and held out views
+    let img_paths = image_loading::get_image_paths(args.img_dir, 0, 360, 10); // maybe restrict to 180 to avoid possible ray bugs
+    let mut imgs = image_loading::load_multiple_images_as_arrays(img_paths); // TODO: split into training and held out views
 
     let mut model = model_tch::TchModel::new();
     if args.load_path != "" {
@@ -49,6 +52,8 @@ fn main() {
     let mut iter = 0;
     let mut writer = SummaryWriter::new(&format!("{}/{}", &args.log_dir, ts));
 
+    log_params(&mut writer, &cli::get_scalars_as_map());
+
     let mut batch_losses: Vec<f32> = Vec::new();
 
     // training step takes place inside a window update callback
@@ -56,6 +61,9 @@ fn main() {
     let mut backbuffer = [0; WIDTH * HEIGHT];
     let update_window_buffer = |buffer: &mut Vec<u32>| {
         //predict emittance and density
+        // let mut rng = thread_rng(); // Get a thread-local random number generator
+        // imgs.shuffle(&mut rng);
+
         let (indices, query_points, distances, gold) = get_batch(&imgs, iter);
         let query_points_copy = query_points.clone();
 
@@ -63,19 +71,26 @@ fn main() {
             log_query_points(&mut writer, &query_points, &distances, iter);
         }
 
-        let predictions = model.predict(query_points, distances);
+        let (predictions, densities) = model.predict(query_points, distances);
 
-        if iter % args.logging_steps == 0 && args.log_densities_only {
+        if iter % args.logging_steps == 0 {
             log_density_maps(
                 &mut writer,
                 &query_points_copy,
-                model_tch::get_predictions_as_array_vec(&predictions),
+                model_tch::get_predictions_as_array_vec(&densities),
+                iter,
+            );
+
+            log_densities(
+                &mut writer,
+                &query_points_copy,
+                model_tch::get_predictions_as_array_vec(&densities),
                 iter,
             );
         }
 
         if args.do_train {
-            let loss: f32 = model.step(&predictions, gold);
+            let loss: f32 = model.step(&predictions, gold, &iter, args.accumulation_steps);
 
             println!("iter={}, loss={:.16}", iter, loss);
             writer.add_scalar("loss", loss, iter);
@@ -92,24 +107,16 @@ fn main() {
         }
         if iter % args.eval_steps == 0 {
             backbuffer = [0; WIDTH * HEIGHT];
-            if !args.log_densities_only {
-                if args.eval_on_train {
-                    draw_train_predictions(
-                        &mut backbuffer,
-                        indices,
-                        predictions,
-                        iter,
-                        &mut writer,
-                    );
-                } else {
-                    let angle = (iter as f32 / 180.) * std::f32::consts::PI; // / 2. + std::f32::consts::PI / 4.;
-                    draw_valid_predictions(
-                        &mut backbuffer,
-                        iter,
-                        angle % (2. * std::f32::consts::PI),
-                        &model,
-                    );
-                }
+            if args.eval_on_train {
+                draw_train_predictions(&mut backbuffer, indices, predictions, iter, &mut writer);
+            } else {
+                let angle = (iter as f32 / 180.) * std::f32::consts::PI; // / 2. + std::f32::consts::PI / 4.;
+                draw_valid_predictions(
+                    &mut backbuffer,
+                    iter,
+                    angle % (2. * std::f32::consts::PI),
+                    &model,
+                );
             }
         }
 
@@ -122,6 +129,12 @@ fn main() {
     };
 
     run_window(update_window_buffer, WIDTH, HEIGHT);
+}
+
+fn log_params(writer: &mut SummaryWriter, params: &HashMap<String, f32>) {
+    for (key, value) in params {
+        writer.add_scalar(key, *value, 0);
+    }
 }
 
 fn log_query_points(
@@ -352,7 +365,7 @@ fn draw_valid_predictions(
             })
             .collect();
 
-        let predictions = model.predict(query_points, distances);
+        let (predictions, _) = model.predict(query_points, distances);
 
         for
                 ([y, x], prediction) //[world_x, world_y, world_z]

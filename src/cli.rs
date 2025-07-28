@@ -1,17 +1,20 @@
-use clap::Parser;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
-#[derive(Parser)]
+use clap::{ArgMatches, CommandFactory, Parser};
+
+#[derive(Parser, Serialize)]
 pub struct Cli {
     #[arg(long, default_value_t = false)]
     pub DEBUG: bool,
 
-    #[arg(long, default_value_t = false)]
+    #[arg(long, default_value_t = true)]
     pub do_train: bool,
 
-    #[arg(long, default_value_t = false)]
+    #[arg(long, default_value_t = true)]
     pub eval_on_train: bool,
 
-    #[arg(long, default_value_t = true)]
+    #[arg(long, default_value_t = false)]
     pub log_densities_only: bool,
 
     #[arg(long, default_value = "monkey-128-no-shading")]
@@ -22,29 +25,43 @@ pub struct Cli {
 
     #[arg(long, default_value = "checkpoints")]
     pub save_dir: String,
+    // checkpoints/checkpoint-1753511632-49049.ot
     // checkpoints/checkpoint-1753425343-50000.ot
     // checkpoints/checkpoint-1753411427-19000.ot
-    //checkpoint-1753406758-19000.ot
+    // checkpoint-1753406758-19000.ot
     // checkpoint-1753394531-47000.ot
     // checkpoint-1753331736-26000.ot
     // checkpoint-1753303468-8484.ot")
     // checkpoint-1718944888-11413.ot
     // checkpoint-1718941373-6161.ot
-    #[arg(long, default_value = "checkpoints/checkpoint-1753511632-49049.ot")]
+    #[arg(long, default_value = "")]
     pub load_path: String,
 
-    #[arg(long, default_value_t = 24)]
+    #[arg(long, default_value_t = 50000)]
     pub num_iter: usize,
 
-    #[arg(long, default_value_t = 5)]
+    #[arg(long, default_value_t = 1001)]
     pub eval_steps: usize,
 
-    #[arg(long, default_value_t = 1)]
+    #[arg(long, default_value_t = 1001)]
     pub logging_steps: usize,
 
-    #[arg(long, default_value_t = 1001)]
+    #[arg(long, default_value_t = 5001)]
     pub save_steps: usize,
 
-    #[arg(long, default_value_t = 100)]
-    pub refresh_epochs: usize,
+    #[arg(long, default_value_t = 1)]
+    pub accumulation_steps: usize,
+}
+
+pub fn get_scalars_as_map() -> HashMap<String, f32> {
+    let matches = Cli::command().get_matches();
+    let mut args_map: HashMap<String, f32> = HashMap::new();
+
+    for arg_id in matches.ids() {
+        let key = arg_id.as_str();
+        if let Ok(Some(value)) = matches.try_get_one::<usize>(key) {
+            args_map.insert(key.to_string(), *value as f32);
+        }
+    }
+    return args_map;
 }
