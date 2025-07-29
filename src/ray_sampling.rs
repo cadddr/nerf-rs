@@ -1,6 +1,5 @@
 use crate::model::NUM_POINTS;
 use rand::random;
-use tch::{kind, Tensor};
 use vecmath::{
     row_mat3x4_transform_pos3, vec3_add, vec3_cross, vec3_dot, vec3_len, vec3_normalized,
     vec3_scale, vec3_sub,
@@ -86,7 +85,7 @@ fn sample_points_along_ray_and_rotate(
     return (points, locations.try_into().unwrap());
 }
 
-pub fn sample_ray_points_and_distances_for_screen_coords(
+pub fn sample_ray_points_for_screen_coords(
     indices: &Vec<[usize; 2]>,
     num_points: usize,
     angle: f32,
@@ -102,43 +101,44 @@ pub fn sample_ray_points_and_distances_for_screen_coords(
     return (points, locations);
 }
 
-pub fn sample_camera_rays_points_and_distances(
-    num_rays: usize,
-    num_points: usize,
-    angle: f32,
-) -> (
-    Vec<[usize; 2]>,
-    Vec<[f32; 3]>,
-    Vec<Vec<[f32; 3]>>,
-    Vec<[f32; NUM_POINTS]>,
-) {
-    let coord_y: Vec<i64> = Vec::try_from(Tensor::randint(
-        HEIGHT as i64,
-        &[num_rays as i64],
-        kind::FLOAT_CPU,
-    ))
-    .unwrap();
+// pub fn sample_camera_rays_points_and_distances(
+//     num_rays: usize,
+//     num_points: usize,
+//     angle: f32,
+// ) -> (
+//     Vec<[usize; 2]>,
+//     Vec<[f32; 3]>,
+//     Vec<Vec<[f32; 3]>>,
+//     Vec<[f32; NUM_POINTS]>,
+// ) {
+//     // generating random tensors is faster
+//     let coord_y: Vec<i64> = Vec::try_from(Tensor::randint(
+//         HEIGHT as i64,
+//         &[num_rays as i64],
+//         kind::FLOAT_CPU,
+//     ))
+//     .unwrap();
 
-    let coord_x: Vec<i64> = Vec::try_from(Tensor::randint(
-        WIDTH as i64,
-        &[num_rays as i64],
-        kind::FLOAT_CPU,
-    ))
-    .unwrap();
+//     let coord_x: Vec<i64> = Vec::try_from(Tensor::randint(
+//         WIDTH as i64,
+//         &[num_rays as i64],
+//         kind::FLOAT_CPU,
+//     ))
+//     .unwrap();
 
-    let indices: Vec<[usize; 2]> = coord_y
-        .iter()
-        .zip(coord_x.iter())
-        .map(|(y, x)| [*y as usize, *x as usize])
-        .collect();
+//     let indices: Vec<[usize; 2]> = coord_y
+//         .iter()
+//         .zip(coord_x.iter())
+//         .map(|(y, x)| [*y as usize, *x as usize])
+//         .collect();
 
-    let views: Vec<[f32; 3]> = Vec::new(); // TODO:
+//     let views: Vec<[f32; 3]> = Vec::new(); // TODO:
 
-    let (query_points, distances) =
-        sample_ray_points_and_distances_for_screen_coords(&indices, num_points, angle);
+//     let (query_points, distances) =
+//         sample_ray_points_and_distances_for_screen_coords(&indices, num_points, angle);
 
-    return (indices, views, query_points, distances);
-}
+//     return (indices, views, query_points, distances);
+// }
 
 #[test]
 fn ray_direction_within_fov() {

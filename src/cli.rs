@@ -5,7 +5,7 @@ use clap::{CommandFactory, Parser};
 #[derive(Parser)]
 pub struct Cli {
     #[arg(long, default_value_t = false)]
-    pub DEBUG: bool,
+    pub debug: bool,
 
     #[arg(long, default_value_t = true)]
     pub do_train: bool,

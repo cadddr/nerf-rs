@@ -22,14 +22,14 @@ pub fn run_window<F: FnMut(&mut Vec<u32>)>(
 pub fn draw_to_screen(
     buffer: &mut Vec<u32>,
     backbuffer: &[u32; WIDTH * HEIGHT], //img: &Vec<[f32; 4]>
-    DEBUG: bool,
+    debug: bool,
     imgs: &Vec<Vec<[f32; 4]>>,
     iter: &usize,
 ) {
     // draw from either backbuffer or gold image
     for y in 0..HEIGHT {
         for x in 0..WIDTH {
-            if DEBUG {
+            if debug {
                 let gold = imgs[iter % imgs.len()][y * WIDTH + x];
                 buffer[y * WIDTH + x] = from_u8_rgb(
                     (gold[0] * 255.) as u8,

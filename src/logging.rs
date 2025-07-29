@@ -1,5 +1,6 @@
 use crate::display::{prediction_array_as_u32, rgba_to_u8_array};
 use crate::model::NUM_POINTS;
+use crate::ray_sampling::{HEIGHT, WIDTH};
 use std::collections::HashMap;
 use tensorboard_rs::summary_writer::SummaryWriter;
 
@@ -7,6 +8,19 @@ pub fn log_params(writer: &mut SummaryWriter, params: &HashMap<String, f32>) {
     for (key, value) in params {
         writer.add_scalar(key, *value, 0);
     }
+}
+
+pub fn log_screen_coords(writer: &mut SummaryWriter, indices: &Vec<[usize; 2]>, iter: usize) {
+    let mut bucket_counts_sy: [f64; HEIGHT] = [0.; HEIGHT];
+    let mut bucket_counts_sx: [f64; WIDTH] = [0.; WIDTH];
+
+    for [x, y] in indices {
+        bucket_counts_sy[*y] += 1.;
+        bucket_counts_sx[*x] += 1.;
+    }
+
+    log_as_hist(writer, "screen_y", bucket_counts_sy, iter);
+    log_as_hist(writer, "screen_x", bucket_counts_sx, iter);
 }
 
 pub fn log_query_points(
@@ -126,6 +140,23 @@ pub fn log_density_maps(
         &vec![3, 100, 100][..],
         iter,
     );
+}
+
+pub fn log_prediction(
+    writer: &mut SummaryWriter,
+    backbuffer: &mut [u32; WIDTH * HEIGHT],
+    iter: usize,
+) {
+    writer.add_image(
+        "prediction",
+        &backbuffer
+            .iter()
+            .map(rgba_to_u8_array)
+            .flatten()
+            .collect::<Vec<u8>>(),
+        &vec![3, WIDTH, HEIGHT][..],
+        iter,
+    ); //TODO probably also save gold view
 }
 
 pub fn log_as_hist<const RANGE: usize>(
