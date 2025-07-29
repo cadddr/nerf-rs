@@ -1,4 +1,5 @@
 use crate::ray_sampling::T_FAR;
+use std::collections::HashMap;
 use tch::nn::ModuleT;
 use tch::{nn, nn::Optimizer, nn::OptimizerConfig, Device, Kind, Tensor};
 
@@ -9,6 +10,17 @@ pub const BATCH_SIZE: usize = NUM_RAYS * NUM_POINTS;
 pub const INDIM: usize = 3;
 const HIDDEN_NODES: i64 = 100;
 const LABELS: usize = 4;
+
+pub fn hparams() -> HashMap<String, f32> {
+    let mut map: HashMap<String, f32> = HashMap::new();
+    map.insert("NUM_RAYS".to_string(), NUM_RAYS as f32);
+    map.insert("NUM_POINTS".to_string(), NUM_POINTS as f32);
+    map.insert("BATCH_SIZE".to_string(), BATCH_SIZE as f32);
+    map.insert("INDIM".to_string(), INDIM as f32);
+    map.insert("HIDDEN_NODES".to_string(), HIDDEN_NODES as f32);
+    map.insert("LABELS".to_string(), LABELS as f32);
+    return map;
+}
 
 #[derive(Debug)]
 struct DensityNet {
@@ -50,8 +62,6 @@ impl DensityNet {
             fc6,
             fc7,
             fc8,
-            // fc9,
-            // fc10,
         }
     }
 }
@@ -130,13 +140,13 @@ impl NeRF {
 
     pub fn predict(
         &self,
-        coords: Vec<Vec<[f32; INDIM]>>, // viewing direction should only go through fc9
-        distances: Vec<[f32; NUM_POINTS]>,
+        coords: &Vec<Vec<[f32; INDIM]>>, // viewing direction should only go through fc9
+        distances: &Vec<[f32; NUM_POINTS]>,
     ) -> (Tensor, Tensor) {
         const INDIM_BATCHED: usize = INDIM * BATCH_SIZE;
 
         let coords_flat =
-            array_vec_to_1d_array::<INDIM, INDIM_BATCHED>(array_vec_vec_to_array_vec(coords));
+            array_vec_to_1d_array::<INDIM, INDIM_BATCHED>(&array_vec_vec_to_array_vec(coords));
         let coords_tensor = Tensor::of_slice(&coords_flat).view((BATCH_SIZE as i64, INDIM as i64));
 
         let densities_features = self.density.forward_t(&coords_tensor.to(Device::Mps), true);
@@ -153,7 +163,7 @@ impl NeRF {
 
         let colors = self.radiance.forward_t(&features, true);
 
-        let distances_flat = array_vec_to_1d_array::<NUM_POINTS, BATCH_SIZE>(distances); // TODO: check
+        let distances_flat = array_vec_to_1d_array::<NUM_POINTS, BATCH_SIZE>(&distances); // TODO: check
         let mut distances_tensor =
             Tensor::of_slice(&distances_flat).view((NUM_RAYS as i64, NUM_POINTS as i64));
 
@@ -270,12 +280,9 @@ fn compositing(densities: &Tensor, colors: Tensor, distances: Tensor) -> Tensor 
     let T = Tensor::stack(&tensor_array, 0).view((NUM_RAYS as i64, NUM_POINTS as i64)); //TODO: check shaping/ordering
 
     let weights = (T * (1. as f32 - (densities * distances).neg().exp())).unsqueeze(2);
-    // weights.softmax(1, Kind::Float).print();
 
-    let final_colors: Tensor = (weights
-        // .softmax(1, Kind::Float)
-    * colors)
-        .sum_dim_intlist(Some([1i64].as_slice()), false, Kind::Float);
+    let final_colors: Tensor =
+        (weights * colors).sum_dim_intlist(Some([1i64].as_slice()), false, Kind::Float);
 
     return final_colors;
 }
@@ -290,20 +297,20 @@ pub struct Trainer {
 }
 
 impl Trainer {
-    pub fn new(vs: &nn::VarStore) -> Trainer {
-        let opt = nn::Adam::default().build(&vs, 5e-4).unwrap();
+    pub fn new(vs: &nn::VarStore, lr: f64) -> Trainer {
+        let opt = nn::Adam::default().build(&vs, lr).unwrap();
         Trainer { opt }
     }
 
     pub fn step(
         &mut self,
         pred_tensor: &Tensor,
-        gold: Vec<[f32; LABELS]>,
+        gold: &Vec<[f32; LABELS]>,
         iter: &usize,
         accumulation_steps: usize,
     ) -> f32 {
         const LABELS_BATCHED: usize = LABELS * NUM_RAYS;
-        let gold_flat = array_vec_to_1d_array::<LABELS, LABELS_BATCHED>(gold);
+        let gold_flat = array_vec_to_1d_array::<LABELS, LABELS_BATCHED>(&gold);
         let gold_tensor = Tensor::of_slice(&gold_flat).view((NUM_RAYS as i64, LABELS as i64));
         let loss = mse_loss(&pred_tensor, &gold_tensor.to(Device::Mps));
 
@@ -340,18 +347,18 @@ pub fn get_predictions_as_array_vec(predictions: &Tensor) -> Vec<Vec<f32>> {
     tensor_to_array_vec(&predictions)
 }
 
-fn array_vec_vec_to_array_vec(vv: Vec<Vec<[f32; INDIM]>>) -> Vec<[f32; INDIM]> {
+fn array_vec_vec_to_array_vec(vv: &Vec<Vec<[f32; INDIM]>>) -> Vec<[f32; INDIM]> {
     let mut v = Vec::new();
     for subvec in vv {
         for el in subvec {
-            v.push(el);
+            v.push(*el);
         }
     }
     return v;
 }
 
 fn array_vec_to_1d_array<const INNER_DIM: usize, const OUT_DIM: usize>(
-    v: Vec<[f32; INNER_DIM]>,
+    v: &Vec<[f32; INNER_DIM]>,
 ) -> [f32; OUT_DIM] {
     let mut array = [0f32; OUT_DIM];
 

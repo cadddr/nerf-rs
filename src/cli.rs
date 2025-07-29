@@ -19,14 +19,24 @@ pub struct Cli {
     #[arg(long, default_value = "monkey-128-no-shading")]
     pub img_dir: String,
 
+    #[arg(long, default_value_t = 0)]
+    pub view_start_h: usize,
+
+    #[arg(long, default_value_t = 360)]
+    pub view_end_h: usize,
+
+    #[arg(long, default_value_t = 10)]
+    pub view_step_h: usize,
+
     #[arg(long, default_value = "logs")]
     pub log_dir: String,
 
     #[arg(long, default_value = "checkpoints")]
     pub save_dir: String,
-    // checkpoints/checkpoint-1753511632-49049.ot
-    // checkpoints/checkpoint-1753425343-50000.ot
-    // checkpoints/checkpoint-1753411427-19000.ot
+
+    // checkpoint-1753511632-49049.ot
+    // checkpoint-1753425343-50000.ot
+    // checkpoint-1753411427-19000.ot
     // checkpoint-1753406758-19000.ot
     // checkpoint-1753394531-47000.ot
     // checkpoint-1753331736-26000.ot
@@ -50,6 +60,9 @@ pub struct Cli {
 
     #[arg(long, default_value_t = 1)]
     pub accumulation_steps: usize,
+
+    #[arg(long, default_value_t = 5e-4)]
+    pub learning_rate: f64,
 }
 
 pub fn get_scalars_as_map() -> HashMap<String, f32> {

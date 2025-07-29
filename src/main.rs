@@ -29,19 +29,24 @@ fn main() {
         .as_secs();
 
     let args = Cli::parse();
-
-    let img_paths = image_loading::get_image_paths(args.img_dir, 0, 360, 10); // maybe restrict to 180 to avoid possible ray bugs
-    let imgs = image_loading::load_multiple_images_as_arrays(img_paths); // TODO: split into training and held out views
-
-    let mut model = model::NeRF::new();
-    let mut trainer = model::Trainer::new(&model.vs);
-
-    if args.load_path != "" {
-        model.load(&args.load_path);
-    }
-
     let mut writer = SummaryWriter::new(&format!("{}/{}", &args.log_dir, ts));
     log_params(&mut writer, &cli::get_scalars_as_map());
+
+    let img_paths = image_loading::get_image_paths(
+        args.img_dir,
+        args.view_start_h,
+        args.view_end_h,
+        args.view_step_h,
+    );
+    let imgs = image_loading::load_multiple_images_as_arrays(img_paths);
+
+    let mut model = model::NeRF::new();
+    let mut trainer = model::Trainer::new(&model.vs, args.learning_rate);
+    log_params(&mut writer, &model::hparams());
+
+    if args.load_path != "" {
+        model.load(&format!("{}/{}", args.save_dir, &args.load_path));
+    }
 
     // training step takes place inside a window update callback
     // it used to be such that window was updated with each batch predictions but it takes way too long to draw on each iter
@@ -49,42 +54,33 @@ fn main() {
     let mut batch_losses: Vec<f32> = Vec::new();
     let mut backbuffer = [0; WIDTH * HEIGHT];
     let update_window_buffer = |buffer: &mut Vec<u32>| {
-        // let mut rng = thread_rng(); // Get a thread-local random number generator
-        // imgs.shuffle(&mut rng);
-
         let (indices, query_points, distances, gold) = get_batch(&imgs, iter);
-        let query_points_copy = query_points.clone();
+        let (predictions, densities) = model.predict(&query_points, &distances);
 
         if iter % args.logging_steps == 0 {
             log_query_points(&mut writer, &query_points, &distances, iter);
-        }
 
-        let (predictions, densities) = model.predict(query_points, distances);
-
-        if iter % args.logging_steps == 0 {
             log_density_maps(
                 &mut writer,
-                &query_points_copy,
+                &query_points,
                 model::get_predictions_as_array_vec(&densities),
                 iter,
             );
 
             log_densities(
                 &mut writer,
-                &query_points_copy,
+                &query_points,
                 model::get_predictions_as_array_vec(&densities),
                 iter,
             );
         }
 
         if args.do_train {
-            let loss: f32 = trainer.step(&predictions, gold, &iter, args.accumulation_steps);
-
+            let loss: f32 = trainer.step(&predictions, &gold, &iter, args.accumulation_steps);
             println!("iter={}, loss={:.16}", iter, loss);
             writer.add_scalar("loss", loss, iter);
 
             batch_losses.push(loss);
-
             Chart::new(120, 40, 0., batch_losses.len() as f32)
                 .lineplot(&Shape::Continuous(Box::new(|x| batch_losses[x as usize])))
                 .display();
@@ -98,16 +94,9 @@ fn main() {
             if args.eval_on_train {
                 draw_train_predictions(&mut backbuffer, indices, predictions, iter, &mut writer);
             } else {
-                let angle = (iter as f32 / 180.) * std::f32::consts::PI; // / 2. + std::f32::consts::PI / 4.;
-                draw_valid_predictions(
-                    &mut backbuffer,
-                    iter,
-                    angle % (2. * std::f32::consts::PI),
-                    &model,
-                );
+                draw_valid_predictions(&mut backbuffer, iter, &model);
             }
         }
-
         draw_to_screen(buffer, &backbuffer, args.DEBUG, &imgs, &iter); // this is needed on each re-draw otherwise screen gets blank
 
         iter = iter + 1;
@@ -128,14 +117,18 @@ fn get_batch(
     Vec<[f32; model::NUM_POINTS]>,
     Vec<[f32; 4]>,
 ) {
+    // let mut rng = thread_rng(); // Get a thread-local random number generator
+    // imgs.shuffle(&mut rng);
+    //
     let n = iter % imgs.len();
     let angle = (n as f32 / imgs.len() as f32) * 2. * std::f32::consts::PI;
 
-    let (indices, _, points) = ray_sampling::sample_points_tensor_along_view_directions(
-        model::NUM_RAYS,
-        model::NUM_POINTS,
-        angle,
-    ); // need mix rays from multiple views
+    let (indices, _, query_points, distances) =
+        ray_sampling::sample_points_tensor_along_view_directions(
+            model::NUM_RAYS,
+            model::NUM_POINTS,
+            angle,
+        ); // need mix rays from multiple views
 
     let gold: Vec<[f32; 4]> = indices
         .iter()
@@ -147,37 +140,10 @@ fn get_batch(
     //            .map(input_transforms::scale_by_screen_size_and_fourier::<3>)
     //            .collect();
 
-    let query_points: Vec<Vec<[f32; 3]>> = points
-        .iter()
-        .map(|ray_points| {
-            ray_points
-                .into_iter()
-                .map(|([x, y, z], _)| [*x, *y, *z])
-                .collect::<Vec<[f32; 3]>>()
-        })
-        .collect();
-
-    let distances = points
-        .into_iter()
-        .map(|ray_points| {
-            ray_points
-                .into_iter()
-                .map(|(_, t)| t)
-                .collect::<Vec<f32>>()
-                .try_into()
-                .unwrap()
-        })
-        .collect();
-
     (indices, query_points, distances, gold)
 }
 
-fn draw_valid_predictions(
-    backbuffer: &mut [u32; WIDTH * HEIGHT],
-    iter: usize,
-    angle: f32,
-    model: &NeRF,
-) {
+fn draw_valid_predictions(backbuffer: &mut [u32; WIDTH * HEIGHT], iter: usize, model: &NeRF) {
     let mut indices: Vec<[usize; 2]> = Vec::new();
 
     for y in 0..HEIGHT {
@@ -185,6 +151,9 @@ fn draw_valid_predictions(
             indices.push([y as usize, x as usize])
         }
     }
+
+    let mut angle = (iter as f32 / 180.) * std::f32::consts::PI;
+    angle %= 2. * std::f32::consts::PI;
 
     for batch_index in (0..indices.len() / model::NUM_RAYS) {
         println!(
@@ -200,43 +169,20 @@ fn draw_valid_predictions(
             .try_into()
             .unwrap();
 
-        let points =
-            ray_sampling::sample_points_tensor_for_rays(indices_batch, model::NUM_POINTS, angle);
+        let (query_points, distances) =
+            ray_sampling::sample_points_tensor_for_rays(&indices_batch, model::NUM_POINTS, angle);
 
-        let query_points: Vec<Vec<[f32; model::INDIM]>> = points
+        let (predictions, _) = model.predict(&query_points, &distances);
+
+        for ([y, x], prediction) in indices
+            [batch_index * model::NUM_RAYS..(batch_index + 1) * model::NUM_RAYS]
             .iter()
-            .map(|ray_points| {
-                ray_points
-                    .into_iter()
-                    .map(|([x, y, z], _)| [*x, *y, *z])
-                    .collect::<Vec<[f32; 3]>>()
-            })
-            .collect();
-
-        let distances: Vec<[f32; model::NUM_POINTS]> = points
+            .zip(model::get_predictions_as_array_vec(&predictions).into_iter())
             .into_iter()
-            .map(|ray_points| {
-                ray_points
-                    .into_iter()
-                    .map(|(_, t)| t)
-                    .collect::<Vec<f32>>()
-                    .try_into()
-                    .unwrap()
-            })
-            .collect();
-
-        let (predictions, _) = model.predict(query_points, distances);
-
-        for
-                ([y, x], prediction) //[world_x, world_y, world_z]
-            in indices[batch_index * model::NUM_RAYS..(batch_index + 1) * model::NUM_RAYS]
-                .iter()
-                .zip(model::get_predictions_as_array_vec(&predictions).into_iter())
-                // .zip(points)
-                .into_iter()
-            {
-                backbuffer[y * WIDTH + x] = prediction_array_as_u32(&[prediction[0], prediction[1], prediction[2], 1.]);
-            }
+        {
+            backbuffer[y * WIDTH + x] =
+                prediction_array_as_u32(&[prediction[0], prediction[1], prediction[2], 1.]);
+        }
     }
 }
 
@@ -251,18 +197,16 @@ fn draw_train_predictions(
     let mut bucket_counts_sx: [f64; WIDTH] = [0.; WIDTH];
 
     // write batch predictions to backbuffer to display until next eval
-    for
-            ([y, x], prediction) //[world_x, world_y, world_z]
-        in indices
-            .iter()
-            .zip(model::get_predictions_as_array_vec(&predictions).into_iter())
-            // .zip(points)
-            .into_iter()
-        {
-            backbuffer[y * WIDTH + x] = prediction_array_as_u32(&[prediction[0], prediction[1], prediction[2], 1.]);
-            bucket_counts_sy[*y] += 1.;
-            bucket_counts_sx[*x] += 1.;
-        }
+    for ([y, x], prediction) in indices
+        .iter()
+        .zip(model::get_predictions_as_array_vec(&predictions).into_iter())
+        .into_iter()
+    {
+        backbuffer[y * WIDTH + x] =
+            prediction_array_as_u32(&[prediction[0], prediction[1], prediction[2], 1.]);
+        bucket_counts_sy[*y] += 1.;
+        bucket_counts_sx[*x] += 1.;
+    }
 
     log_as_hist(writer, "screen_y", bucket_counts_sy, iter);
     log_as_hist(writer, "screen_x", bucket_counts_sx, iter);
