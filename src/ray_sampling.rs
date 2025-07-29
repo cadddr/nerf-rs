@@ -1,9 +1,9 @@
 use crate::model::NUM_POINTS;
 use rand::random;
-use tch::{kind, Kind, Tensor};
+use tch::{kind, Tensor};
 use vecmath::{
-    col_mat4x3_transform_pos3, row_mat3x4_transform_pos3, vec3_add, vec3_cross, vec3_dot, vec3_len,
-    vec3_normalized, vec3_scale, vec3_sub,
+    row_mat3x4_transform_pos3, vec3_add, vec3_cross, vec3_dot, vec3_len, vec3_normalized,
+    vec3_scale, vec3_sub,
 };
 const HITHER: f32 = 0.05;
 const FOV: f32 = std::f32::consts::PI / 4.;
@@ -47,7 +47,7 @@ fn screen_space_to_world_space(x: f32, y: f32, width: f32, height: f32) -> [f32;
     return to;
 }
 
-fn sample_points_along_ray(
+fn sample_points_along_ray_and_rotate(
     from: [f32; 3],
     to: [f32; 3],
     view_angle: f32,
@@ -58,7 +58,7 @@ fn sample_points_along_ray(
 
     for _ in 0..num_samples {
         let t = random::<f32>() * (T_FAR - HITHER) + HITHER;
-        let point = vec3_add(from, vec3_scale(to, t));
+        let point = vec3_add(from, vec3_scale(to, t)); // add back origin of view vector to get point's world coordinates
         points.push(point);
         locations.push(t);
     }
@@ -70,10 +70,10 @@ fn sample_points_along_ray(
 
     points_locations.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
 
-    // TBD - unzip back after sorting by t
+    // unzip back after sorting by t
     points = points_locations
         .iter()
-        .map(|([x, y, z], _)| rotate([*x, *y, *z], view_angle))
+        .map(|([x, y, z], _)| rotate([*x, *y, *z], view_angle)) // and rotate for view angle
         .collect::<Vec<[f32; 3]>>();
 
     locations = points_locations
@@ -86,7 +86,7 @@ fn sample_points_along_ray(
     return (points, locations.try_into().unwrap());
 }
 
-pub fn sample_points_tensor_for_rays(
+pub fn sample_ray_points_and_distances_for_screen_coords(
     indices: &Vec<[usize; 2]>,
     num_points: usize,
     angle: f32,
@@ -96,40 +96,13 @@ pub fn sample_points_tensor_for_rays(
         .map(|[y, x]| {
             screen_space_to_world_space(*x as f32, *y as f32, WIDTH as f32, HEIGHT as f32)
         })
-        .map(|to| {
-            sample_points_along_ray(FROM, to, angle, num_points)
-            // .iter()
-            // .map(|pt| (rotate(pt.0, angle), pt.1))
-            // .collect()
-        })
+        .map(|to| sample_points_along_ray_and_rotate(FROM, to, angle, num_points))
         .collect();
-    // these are awkward but rotations are handled more easily while points and locations are zipped
-    // let query_points: Vec<Vec<[f32; 3]>> = points_locations
-    //     .iter()
-    //     .map(|ray_points| {
-    //         ray_points
-    //             .into_iter()
-    //             .map(|([x, y, z], _)| [*x, *y, *z])
-    //             .collect::<Vec<[f32; 3]>>()
-    //     })
-    //     .collect();
-
-    // let distances: Vec<[f32; NUM_POINTS]> = points_locations
-    //     .into_iter()
-    //     .map(|ray_points| {
-    //         ray_points
-    //             .into_iter()
-    //             .map(|(_, t)| t)
-    //             .collect::<Vec<f32>>()
-    //             .try_into()
-    //             .unwrap()
-    //     })
-    //     .collect();
 
     return (points, locations);
 }
 
-pub fn sample_points_tensor_along_view_directions(
+pub fn sample_camera_rays_points_and_distances(
     num_rays: usize,
     num_points: usize,
     angle: f32,
@@ -161,31 +134,10 @@ pub fn sample_points_tensor_along_view_directions(
 
     let views: Vec<[f32; 3]> = Vec::new(); // TODO:
 
-    let (query_points, distances) = sample_points_tensor_for_rays(&indices, num_points, angle);
+    let (query_points, distances) =
+        sample_ray_points_and_distances_for_screen_coords(&indices, num_points, angle);
 
-    // let points: Vec<Vec<([f32; 3], f32)>> = indices
-    //     .iter()
-    //     .map(|[y, x]| {
-    //         screen_space_to_world_space(*x as f32, *y as f32, WIDTH as f32, HEIGHT as f32)
-    //     })
-    //     .map(|to| {
-    //         sample_points_along_ray(FROM, to, num_points)
-    //             .iter()
-    //             .map(|pt| (rotate(pt.0, angle), pt.1))
-    //             .collect()
-    //     })
-    //     .collect();
-
-    // return (indices, views, points);
     return (indices, views, query_points, distances);
-}
-
-#[test]
-fn point_rotates_to_90() {
-    let angle = std::f32::consts::PI / 2.;
-    let vec = [1., 2., 3.];
-    println!("{:?}", rotate(vec, angle));
-    assert!(rotate(vec, angle) == [3.0, 2.0, -1.0000001])
 }
 
 #[test]
@@ -202,49 +154,71 @@ fn ray_direction_within_fov() {
     assert!(angle >= <f32>::cos(FOV / 2.))
 }
 
-// #[test]
-// fn points_sampled_lie_on_ray() {
-//     let x = random::<f32>() * (WIDTH as f32);
-//     let y = random::<f32>() * (HEIGHT as f32);
-//     println!("{} {}", x, y);
-//     let to = screen_space_to_world_space(x as f32, y as f32, WIDTH as f32, HEIGHT as f32);
-//     println!("{:?}", to);
-//     let points = sample_points_along_ray(FROM, to);
+#[test]
+fn points_sampled_lie_on_ray() {
+    let x = random::<f32>() * (WIDTH as f32);
+    let y = random::<f32>() * (HEIGHT as f32);
+    println!("coords {} {}", x, y);
+    let to = screen_space_to_world_space(x as f32, y as f32, WIDTH as f32, HEIGHT as f32);
+    println!("to {:?}", to);
+    let (points, _) = sample_points_along_ray_and_rotate(FROM, to, 0., NUM_POINTS);
 
-//     points.iter().for_each(|it| {
-//         println!("point {{ {:.2}, {:.2}, {:.2} }}", it[0], it[1], it[2]);
-//     });
+    points.iter().for_each(|it| {
+        println!("point {{ {:.2}, {:.2}, {:.2} }}", it[0], it[1], it[2]);
+    });
 
-//     points.iter().for_each(|&it| {
-//         println!("^to {}", vec3_dot(vec3_normalized(it), to));
-//     });
+    points.iter().for_each(|&it| {
+        println!(
+            "dot(p, to) {}",
+            vec3_dot(vec3_normalized(vec3_sub(it, FROM)), to)
+        );
+    });
 
-//     points.iter().for_each(|&it| {
-//         println!("|-to| {}", vec3_len(vec3_sub(vec3_normalized(it), to)));
-//     });
+    points.iter().for_each(|&it| {
+        println!(
+            "|sub(p, to)| {}",
+            vec3_len(vec3_sub(vec3_normalized(vec3_sub(it, FROM)), to))
+        );
+    });
 
-//     assert!(points
-//         .iter()
-//         .all(|&p| vec3_len(vec3_sub(vec3_normalized(p), to)) < 1e-6));
-// }
+    assert!(points
+        .iter()
+        .all(|&p| vec3_len(vec3_sub(vec3_normalized(vec3_sub(p, FROM)), to)) < 1e-6));
+}
 
-// #[test]
-// fn points_sampled_ordered_by_t() {
-//     let x = random::<f32>() * (WIDTH as f32);
-//     let y = random::<f32>() * (HEIGHT as f32);
-//     println!("{} {}", x, y);
-//     let to = screen_space_to_world_space(x as f32, y as f32, WIDTH as f32, HEIGHT as f32);
-//     println!("{:?}", to);
-//     let points = sample_points_along_ray(FROM, to);
+#[test]
+fn points_sampled_ordered_by_t() {
+    let x = random::<f32>() * (WIDTH as f32);
+    let y = random::<f32>() * (HEIGHT as f32);
+    println!("coords {} {}", x, y);
+    let to = screen_space_to_world_space(x as f32, y as f32, WIDTH as f32, HEIGHT as f32);
+    println!("to {:?}", to);
+    let (points, locations) = sample_points_along_ray_and_rotate(FROM, to, 0., NUM_POINTS);
 
-//     points.iter().for_each(|it| {
-//         println!("point {{ {:.2}, {:.2}, {:.2} }}", it[0], it[1], it[2]);
-//     });
+    points.iter().for_each(|it| {
+        println!("point {{ {:.2}, {:.2}, {:.2} }}", it[0], it[1], it[2]);
+    });
 
-//     points.iter().for_each(|&it| {
-//         println!("len {}", vec3_len(it));
-//     });
+    locations.iter().for_each(|t| {
+        println!("t {:.2}", t);
+    });
 
-//     let locations = points.iter().map(|&it| vec3_len(it)).collect::<Vec<f32>>();
-//     assert!((0..locations.len() - 1).all(|i| locations[i] <= locations[i + 1]));
-// }
+    points.iter().for_each(|&it| {
+        println!("len {}", vec3_len(vec3_sub(it, FROM)));
+    });
+
+    let lengths = points
+        .iter()
+        .map(|&it| vec3_len(vec3_sub(it, FROM)))
+        .collect::<Vec<f32>>();
+    assert!((0..lengths.len() - 1).all(|i| lengths[i] <= lengths[i + 1]));
+    assert!((0..locations.len() - 1).all(|i| locations[i] <= locations[i + 1]));
+}
+
+#[test]
+fn point_rotates_to_90() {
+    let angle = std::f32::consts::PI / 2.;
+    let vec = [1., 2., 3.];
+    println!("{:?}", rotate(vec, angle));
+    assert!(rotate(vec, angle) == [3.0, 2.0, -1.0000001])
+}

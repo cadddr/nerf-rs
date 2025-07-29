@@ -124,7 +124,7 @@ fn get_batch(
     let angle = (n as f32 / imgs.len() as f32) * 2. * std::f32::consts::PI;
 
     let (indices, _, query_points, distances) =
-        ray_sampling::sample_points_tensor_along_view_directions(
+        ray_sampling::sample_camera_rays_points_and_distances(
             model::NUM_RAYS,
             model::NUM_POINTS,
             angle,
@@ -170,7 +170,11 @@ fn draw_valid_predictions(backbuffer: &mut [u32; WIDTH * HEIGHT], iter: usize, m
             .unwrap();
 
         let (query_points, distances) =
-            ray_sampling::sample_points_tensor_for_rays(&indices_batch, model::NUM_POINTS, angle);
+            ray_sampling::sample_ray_points_and_distances_for_screen_coords(
+                &indices_batch,
+                model::NUM_POINTS,
+                angle,
+            );
 
         let (predictions, _) = model.predict(&query_points, &distances);
 
