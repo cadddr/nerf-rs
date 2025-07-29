@@ -1,15 +1,16 @@
 use crate::ray_sampling::T_FAR;
 use std::collections::HashMap;
+use std::convert::{TryFrom, TryInto};
 use tch::nn::ModuleT;
 use tch::{nn, nn::Optimizer, nn::OptimizerConfig, Device, Kind, Tensor};
 
 pub const NUM_RAYS: usize = 4096;
 pub const NUM_POINTS: usize = 16;
-pub const BATCH_SIZE: usize = NUM_RAYS * NUM_POINTS;
+pub const BATCH_SIZE: i64 = NUM_RAYS as i64 * NUM_POINTS as i64;
 
-pub const INDIM: usize = 3;
+pub const INDIM: i64 = 3;
 const HIDDEN_NODES: i64 = 100;
-const LABELS: usize = 4;
+pub const LABELS: i64 = 4;
 
 pub fn hparams() -> HashMap<String, f32> {
     let mut map: HashMap<String, f32> = HashMap::new();
@@ -44,7 +45,7 @@ impl DensityNet {
     fn new(vs: &nn::Path) -> DensityNet {
         // the MLP FΘ first processes the input 3D coordinate x with 8 fully-connected layers (using ReLU activations and 256 channels per layer)
         // and outputs σ and a 256-dimensional feature vector.
-        let fc1 = nn::linear(vs, INDIM as i64, HIDDEN_NODES, Default::default());
+        let fc1 = nn::linear(vs, INDIM, HIDDEN_NODES, Default::default());
         let fc2 = nn::linear(vs, HIDDEN_NODES, HIDDEN_NODES, Default::default());
         let fc3 = nn::linear(vs, HIDDEN_NODES, HIDDEN_NODES, Default::default());
         let fc4 = nn::linear(vs, HIDDEN_NODES, HIDDEN_NODES, Default::default());
@@ -70,13 +71,8 @@ impl RadianceNet {
     fn new(vs: &nn::Path) -> RadianceNet {
         // This feature vector is then concatenated with the camera ray’s viewing direction and passed to one additional
         // fully-connected layer (using a ReLU activation and 128 channels) that output the view-dependent RGB color.
-        let fc9 = nn::linear(
-            vs,
-            HIDDEN_NODES,
-            HIDDEN_NODES / 2 as i64,
-            Default::default(),
-        );
-        let fc10 = nn::linear(vs, HIDDEN_NODES / 2, LABELS as i64, Default::default());
+        let fc9 = nn::linear(vs, HIDDEN_NODES, HIDDEN_NODES / 2, Default::default());
+        let fc10 = nn::linear(vs, HIDDEN_NODES / 2, LABELS, Default::default());
 
         RadianceNet { fc9, fc10 }
     }
@@ -108,12 +104,12 @@ impl nn::ModuleT for DensityNet {
 impl nn::ModuleT for RadianceNet {
     fn forward_t(&self, features: &Tensor, train: bool) -> Tensor {
         let colors = features
-            .view((BATCH_SIZE as i64, HIDDEN_NODES))
+            .view((BATCH_SIZE, HIDDEN_NODES))
             .apply(&self.fc9)
             .relu()
             .apply(&self.fc10)
             .sigmoid()
-            .view((NUM_RAYS as i64, NUM_POINTS as i64, LABELS as i64));
+            .view((NUM_RAYS as i64, NUM_POINTS as i64, LABELS));
 
         colors
     }
@@ -140,39 +136,40 @@ impl NeRF {
 
     pub fn predict(
         &self,
-        coords: &Vec<Vec<[f32; INDIM]>>, // viewing direction should only go through fc9
-        distances: &Vec<[f32; NUM_POINTS]>,
+        mut coords: Tensor, // viewing direction should only go through fc9
+        mut distances: Tensor,
     ) -> (Tensor, Tensor) {
-        const INDIM_BATCHED: usize = INDIM * BATCH_SIZE;
+        // const INDIM_BATCHED: usize = INDIM * BATCH_SIZE;
 
-        let coords_flat =
-            array_vec_to_1d_array::<INDIM, INDIM_BATCHED>(&array_vec_vec_to_array_vec(coords));
-        let coords_tensor = Tensor::of_slice(&coords_flat).view((BATCH_SIZE as i64, INDIM as i64));
+        // let coords_flat =
+        //     array_vec_to_1d_array::<INDIM, INDIM_BATCHED>(&array_vec_vec_to_array_vec(coords));
+        // let coords_tensor = Tensor::of_slice(&coords_flat).view((BATCH_SIZE as i64, INDIM));
+        assert_eq!(coords.size(), vec![BATCH_SIZE * INDIM]);
+        assert_eq!(distances.size(), vec![BATCH_SIZE]);
 
-        let densities_features = self.density.forward_t(&coords_tensor.to(Device::Mps), true);
+        coords = coords.to(Device::Mps).view((BATCH_SIZE, INDIM));
+        let densities_features = self.density.forward_t(&coords, true);
 
         let densities = densities_features
-            .view((NUM_RAYS as i64, NUM_POINTS as i64, HIDDEN_NODES + 1 as i64))
+            .view((NUM_RAYS as i64, NUM_POINTS as i64, HIDDEN_NODES + 1))
             .permute(&[2, 0, 1])
             .get(0);
 
         let features = densities_features
-            .view((NUM_RAYS as i64, NUM_POINTS as i64, HIDDEN_NODES + 1 as i64))
-            .slice(2 as i64, 1, HIDDEN_NODES + 1, 1) // should concat with view dir, not drop density
-            .view((BATCH_SIZE as i64, HIDDEN_NODES));
+            .view((NUM_RAYS as i64, NUM_POINTS as i64, HIDDEN_NODES + 1))
+            .slice(2, 1, HIDDEN_NODES + 1, 1) // should concat with view dir, not drop density
+            .view((BATCH_SIZE, HIDDEN_NODES));
 
         let colors = self.radiance.forward_t(&features, true);
 
-        let distances_flat = array_vec_to_1d_array::<NUM_POINTS, BATCH_SIZE>(&distances); // TODO: check
-        let mut distances_tensor =
-            Tensor::of_slice(&distances_flat).view((NUM_RAYS as i64, NUM_POINTS as i64));
+        // let distances_flat = array_vec_to_1d_array::<NUM_POINTS, BATCH_SIZE>(&distances); // TODO: check
+        // let mut distances_tensor =
+        //     Tensor::of_slice(&distances_flat).view((NUM_RAYS as i64, NUM_POINTS as i64));
 
         let tfar = Tensor::of_slice(&[T_FAR; NUM_RAYS]).unsqueeze(1);
-
-        distances_tensor = Tensor::concat(
-            &[distances_tensor.slice(1, 1, NUM_POINTS as i64, 1), tfar],
-            1,
-        ) - distances_tensor; // distances between adjacent samples, eq. (3)
+        distances = distances.view((NUM_RAYS as i64, NUM_POINTS as i64));
+        distances =
+            Tensor::concat(&[distances.slice(1, 1, NUM_POINTS as i64, 1), tfar], 1) - distances; // distances between adjacent samples, eq. (3)
 
         return (
             compositing(
@@ -190,7 +187,7 @@ impl NeRF {
                     0,
                 )
                 .permute(&[1, 2, 0]),
-                distances_tensor.to(Device::Mps),
+                distances.to(Device::Mps),
             ),
             densities,
         );
@@ -205,10 +202,35 @@ impl NeRF {
     }
 }
 
-fn mean_compositing(colors: Tensor) -> Tensor {
-    colors
-        // .view((NUM_RAYS as i64, NUM_POINTS as i64, LABELS as i64))
-        .mean_dim(Some([1i64].as_slice()), false, Kind::Float)
+// eq. (3)
+fn accumulated_transmittance(densities: &Tensor, distances: &Tensor, i: i64) -> Tensor {
+    if i == 0 {
+        // First sample has full transmittance
+        return Tensor::ones(&[NUM_RAYS as i64], (Kind::Float, densities.device()));
+    }
+    let result = (densities.slice(1, 0, i, 1) * distances.slice(1, 0, i, 1)) // should just be sum of densities up to i - 1
+        .sum_dim_intlist(Some([1i64].as_slice()), false, Kind::Float)
+        .neg()
+        .exp();
+
+    return result;
+}
+
+fn compositing(densities: &Tensor, colors: Tensor, distances: Tensor) -> Tensor {
+    let tensor_vector: Vec<Tensor> = (0..NUM_POINTS)
+        .map(|i| accumulated_transmittance(&densities, &distances, i as i64))
+        .collect();
+
+    let tensor_array: [Tensor; NUM_POINTS] = tensor_vector.try_into().unwrap();
+
+    let T = Tensor::stack(&tensor_array, 0).view((NUM_RAYS as i64, NUM_POINTS as i64)); //TODO: check shaping/ordering
+
+    let weights = (T * (1. as f32 - (densities * distances).neg().exp())).unsqueeze(2);
+
+    let final_colors: Tensor =
+        (weights * colors).sum_dim_intlist(Some([1i64].as_slice()), false, Kind::Float);
+
+    return final_colors;
 }
 
 #[test]
@@ -244,20 +266,6 @@ fn flatten_order_test() {
         .print();
 }
 
-// eq. (3)
-fn accumulated_transmittance(densities: &Tensor, distances: &Tensor, i: i64) -> Tensor {
-    if i == 0 {
-        // First sample has full transmittance
-        return Tensor::ones(&[NUM_RAYS as i64], (Kind::Float, densities.device()));
-    }
-    let result = (densities.slice(1 as i64, 0, i, 1) * distances.slice(1 as i64, 0, i, 1)) // should just be sum of densities up to i - 1
-        .sum_dim_intlist(Some([1i64].as_slice()), false, Kind::Float)
-        .neg()
-        .exp();
-
-    return result;
-}
-
 #[test]
 fn off_by_one_slice() {
     for i in (0..NUM_POINTS) {
@@ -268,23 +276,6 @@ fn off_by_one_slice() {
         Tensor::of_slice(&[1, 2, 3]).slice(0, 0, 2, 1),
         Tensor::of_slice(&[1, 2, 3])
     ]
-}
-
-fn compositing(densities: &Tensor, colors: Tensor, distances: Tensor) -> Tensor {
-    let tensor_vector: Vec<Tensor> = (0..NUM_POINTS)
-        .map(|i| accumulated_transmittance(&densities, &distances, i as i64))
-        .collect();
-
-    let tensor_array: [Tensor; NUM_POINTS] = tensor_vector.try_into().unwrap();
-
-    let T = Tensor::stack(&tensor_array, 0).view((NUM_RAYS as i64, NUM_POINTS as i64)); //TODO: check shaping/ordering
-
-    let weights = (T * (1. as f32 - (densities * distances).neg().exp())).unsqueeze(2);
-
-    let final_colors: Tensor =
-        (weights * colors).sum_dim_intlist(Some([1i64].as_slice()), false, Kind::Float);
-
-    return final_colors;
 }
 
 fn mse_loss(x: &Tensor, y: &Tensor) -> Tensor {
@@ -304,15 +295,19 @@ impl Trainer {
 
     pub fn step(
         &mut self,
-        pred_tensor: &Tensor,
-        gold: &Vec<[f32; LABELS]>,
+        predictions: &Tensor,
+        mut gold: Tensor,
         iter: &usize,
         accumulation_steps: usize,
     ) -> f32 {
-        const LABELS_BATCHED: usize = LABELS * NUM_RAYS;
-        let gold_flat = array_vec_to_1d_array::<LABELS, LABELS_BATCHED>(&gold);
-        let gold_tensor = Tensor::of_slice(&gold_flat).view((NUM_RAYS as i64, LABELS as i64));
-        let loss = mse_loss(&pred_tensor, &gold_tensor.to(Device::Mps));
+        // const LABELS_BATCHED: usize = LABELS * NUM_RAYS;
+        // let gold_flat = array_vec_to_1d_array::<LABELS, LABELS_BATCHED>(&gold);
+        // let gold_tensor = Tensor::of_slice(&gold_flat).view((NUM_RAYS as i64, LABELS as i64));
+        assert_eq!(predictions.size(), vec![NUM_RAYS as i64, LABELS]);
+        assert_eq!(gold.size(), vec![NUM_RAYS as i64 * LABELS]);
+
+        gold = gold.to(Device::Mps).view((NUM_RAYS as i64, LABELS));
+        let loss = mse_loss(&predictions, &gold);
 
         // self.backward_scale_grad_step(&loss);
         // self.opt.backward_step(&loss);
@@ -343,33 +338,62 @@ impl Trainer {
     }
 }
 
-pub fn get_predictions_as_array_vec(predictions: &Tensor) -> Vec<Vec<f32>> {
-    tensor_to_array_vec(&predictions)
+// fn array_vec_vec_to_array_vec(vv: &Vec<Vec<[f32; INDIM]>>) -> Vec<[f32; INDIM]> {
+//     let mut v = Vec::new();
+//     for subvec in vv {
+//         for el in subvec {
+//             v.push(*el);
+//         }
+//     }
+//     return v;
+// }
+
+// fn array_vec_to_1d_array<const INNER_DIM: usize, const OUT_DIM: usize>(
+//     v: &Vec<[f32; INNER_DIM]>,
+// ) -> [f32; OUT_DIM] {
+//     let mut array = [0f32; OUT_DIM];
+
+//     for batch_index in 0..OUT_DIM / INNER_DIM {
+//         for item_index in 0..INNER_DIM {
+//             array[batch_index * INNER_DIM + item_index] = v[batch_index][item_index];
+//         }
+//     }
+//     return array;
+// }
+
+pub fn tensor_from_3d(query_points: &Vec<Vec<[f32; 3]>>) -> Tensor {
+    Tensor::of_slice(
+        &query_points
+            .clone()
+            .into_iter()
+            .flatten()
+            .flatten()
+            .collect::<Vec<f32>>(),
+    )
 }
 
-fn array_vec_vec_to_array_vec(vv: &Vec<Vec<[f32; INDIM]>>) -> Vec<[f32; INDIM]> {
-    let mut v = Vec::new();
-    for subvec in vv {
-        for el in subvec {
-            v.push(*el);
-        }
-    }
-    return v;
-}
-
-fn array_vec_to_1d_array<const INNER_DIM: usize, const OUT_DIM: usize>(
-    v: &Vec<[f32; INNER_DIM]>,
-) -> [f32; OUT_DIM] {
-    let mut array = [0f32; OUT_DIM];
-
-    for batch_index in 0..OUT_DIM / INNER_DIM {
-        for item_index in 0..INNER_DIM {
-            array[batch_index * INNER_DIM + item_index] = v[batch_index][item_index];
-        }
-    }
-    return array;
+pub fn tensor_from_2d<const INNER_DIM: usize>(distances: &Vec<[f32; INNER_DIM]>) -> Tensor {
+    Tensor::of_slice(
+        &distances
+            .clone()
+            .into_iter()
+            .flatten()
+            .collect::<Vec<f32>>(),
+    )
 }
 
 pub fn tensor_to_array_vec(a: &Tensor) -> Vec<Vec<f32>> {
     return Vec::<Vec<f32>>::try_from(a.to_kind(Kind::Float).to_device(Device::Cpu)).unwrap();
+}
+
+#[test]
+pub fn to_tensor() {
+    let x = vec![
+        vec![&[1i64, 2i64]],
+        vec![&[1i64, 2i64]],
+        vec![&[1i64, 2i64]],
+    ];
+    let y = x.into_iter().flatten().collect::<Vec<&[i64; 2]>>();
+    let z = y.into_iter().flatten().collect::<Vec<&i64>>();
+    println!["{:?}", z.len()];
 }

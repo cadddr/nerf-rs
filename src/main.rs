@@ -6,7 +6,9 @@ mod ray_sampling;
 use ray_sampling::{sample_ray_points_for_screen_coords, HEIGHT, WIDTH};
 mod input_transforms;
 mod model;
-use model::{get_predictions_as_array_vec, NeRF, INDIM, NUM_POINTS, NUM_RAYS};
+use model::{
+    tensor_from_2d, tensor_from_3d, tensor_to_array_vec, NeRF, INDIM, LABELS, NUM_POINTS, NUM_RAYS,
+};
 mod display;
 use display::{draw_to_screen, prediction_array_as_u32, run_window};
 mod logging;
@@ -55,7 +57,11 @@ fn main() {
     let mut backbuffer = [0; WIDTH * HEIGHT];
     let update_window_buffer = |buffer: &mut Vec<u32>| {
         let (indices, query_points, distances, gold) = get_train_batch(&imgs, iter);
-        let (predictions, densities) = model.predict(&query_points, &distances);
+
+        let (predictions, densities) = model.predict(
+            tensor_from_3d(&query_points),
+            tensor_from_2d::<NUM_POINTS>(&distances),
+        );
 
         if iter % args.logging_steps == 0 {
             log_screen_coords(&mut writer, &indices, iter);
@@ -63,19 +69,24 @@ fn main() {
             log_density_maps(
                 &mut writer,
                 &query_points,
-                model::get_predictions_as_array_vec(&densities),
+                tensor_to_array_vec(&densities),
                 iter,
             );
             log_densities(
                 &mut writer,
                 &query_points,
-                model::get_predictions_as_array_vec(&densities),
+                tensor_to_array_vec(&densities),
                 iter,
             );
         }
 
         if args.do_train {
-            let loss: f32 = trainer.step(&predictions, &gold, &iter, args.accumulation_steps);
+            let loss: f32 = trainer.step(
+                &predictions,
+                tensor_from_2d::<{ LABELS as usize }>(&gold),
+                &iter,
+                args.accumulation_steps,
+            );
             println!("iter={}, loss={:.16}", iter, loss);
             writer.add_scalar("loss", loss, iter);
 
@@ -139,7 +150,7 @@ fn get_train_batch(
     iter: usize,
 ) -> (
     Vec<[usize; 2]>,
-    Vec<Vec<[f32; INDIM]>>,
+    Vec<Vec<[f32; INDIM as usize]>>,
     Vec<[f32; NUM_POINTS]>,
     Vec<[f32; 4]>,
 ) {
@@ -196,7 +207,10 @@ fn draw_valid_predictions(backbuffer: &mut [u32; WIDTH * HEIGHT], iter: usize, m
         let (query_points, distances) =
             sample_ray_points_for_screen_coords(&indices_batch, NUM_POINTS, angle);
 
-        let (predictions, _) = model.predict(&query_points, &distances);
+        let (predictions, _) = model.predict(
+            tensor_from_3d(&query_points),
+            tensor_from_2d::<NUM_POINTS>(&distances),
+        );
         draw_predictions(backbuffer, indices_batch, predictions);
     }
 }
@@ -209,7 +223,7 @@ fn draw_predictions(
     // write batch predictions to backbuffer to display until next eval
     for ([y, x], prediction) in indices
         .iter()
-        .zip(get_predictions_as_array_vec(&predictions).into_iter())
+        .zip(tensor_to_array_vec(&predictions).into_iter())
         .into_iter()
     {
         backbuffer[y * WIDTH + x] =

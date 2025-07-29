@@ -30,7 +30,7 @@ fn rotate(vec: [f32; 3], angle: f32) -> [f32; 3] {
     //    from = multvec3(rot, from.sub(at)).add(at);
 }
 
-fn screen_space_to_world_space(x: f32, y: f32, width: f32, height: f32) -> [f32; 3] {
+fn screen_to_world(x: f32, y: f32, width: f32, height: f32) -> [f32; 3] {
     let off: f32 = f32::tan(FOV / 2.) * HITHER;
     let offset_left = off - 2. * off * x / width;
     let offset_up = off - 2. * off * y / height;
@@ -90,62 +90,25 @@ pub fn sample_ray_points_for_screen_coords(
     num_points: usize,
     angle: f32,
 ) -> (Vec<Vec<[f32; 3]>>, Vec<[f32; NUM_POINTS]>) {
-    let (points, locations): (Vec<Vec<[f32; 3]>>, Vec<[f32; NUM_POINTS]>) = indices
+    let rays: Vec<[f32; 3]> = indices
         .iter()
-        .map(|[y, x]| {
-            screen_space_to_world_space(*x as f32, *y as f32, WIDTH as f32, HEIGHT as f32)
-        })
-        .map(|to| sample_points_along_ray_and_rotate(FROM, to, angle, num_points))
+        .map(|[y, x]| screen_to_world(*x as f32, *y as f32, WIDTH as f32, HEIGHT as f32))
+        .collect();
+
+    let (points, locations) = rays
+        .iter()
+        .map(|to| sample_points_along_ray_and_rotate(FROM, *to, angle, num_points))
         .collect();
 
     return (points, locations);
 }
-
-// pub fn sample_camera_rays_points_and_distances(
-//     num_rays: usize,
-//     num_points: usize,
-//     angle: f32,
-// ) -> (
-//     Vec<[usize; 2]>,
-//     Vec<[f32; 3]>,
-//     Vec<Vec<[f32; 3]>>,
-//     Vec<[f32; NUM_POINTS]>,
-// ) {
-//     // generating random tensors is faster
-//     let coord_y: Vec<i64> = Vec::try_from(Tensor::randint(
-//         HEIGHT as i64,
-//         &[num_rays as i64],
-//         kind::FLOAT_CPU,
-//     ))
-//     .unwrap();
-
-//     let coord_x: Vec<i64> = Vec::try_from(Tensor::randint(
-//         WIDTH as i64,
-//         &[num_rays as i64],
-//         kind::FLOAT_CPU,
-//     ))
-//     .unwrap();
-
-//     let indices: Vec<[usize; 2]> = coord_y
-//         .iter()
-//         .zip(coord_x.iter())
-//         .map(|(y, x)| [*y as usize, *x as usize])
-//         .collect();
-
-//     let views: Vec<[f32; 3]> = Vec::new(); // TODO:
-
-//     let (query_points, distances) =
-//         sample_ray_points_and_distances_for_screen_coords(&indices, num_points, angle);
-
-//     return (indices, views, query_points, distances);
-// }
 
 #[test]
 fn ray_direction_within_fov() {
     let x = random::<f32>() * (WIDTH as f32);
     let y = random::<f32>() * (HEIGHT as f32);
     println!("x={} y={}", x, y);
-    let mut to = screen_space_to_world_space(x as f32, y as f32, WIDTH as f32, HEIGHT as f32);
+    let mut to = screen_to_world(x as f32, y as f32, WIDTH as f32, HEIGHT as f32);
     println!("{:?}", to);
     to[1] = 0.; //align in FOV plane
     let angle = vec3_dot(to, AT);
@@ -159,7 +122,7 @@ fn points_sampled_lie_on_ray() {
     let x = random::<f32>() * (WIDTH as f32);
     let y = random::<f32>() * (HEIGHT as f32);
     println!("coords {} {}", x, y);
-    let to = screen_space_to_world_space(x as f32, y as f32, WIDTH as f32, HEIGHT as f32);
+    let to = screen_to_world(x as f32, y as f32, WIDTH as f32, HEIGHT as f32);
     println!("to {:?}", to);
     let (points, _) = sample_points_along_ray_and_rotate(FROM, to, 0., NUM_POINTS);
 
@@ -191,7 +154,7 @@ fn points_sampled_ordered_by_t() {
     let x = random::<f32>() * (WIDTH as f32);
     let y = random::<f32>() * (HEIGHT as f32);
     println!("coords {} {}", x, y);
-    let to = screen_space_to_world_space(x as f32, y as f32, WIDTH as f32, HEIGHT as f32);
+    let to = screen_to_world(x as f32, y as f32, WIDTH as f32, HEIGHT as f32);
     println!("to {:?}", to);
     let (points, locations) = sample_points_along_ray_and_rotate(FROM, to, 0., NUM_POINTS);
 
