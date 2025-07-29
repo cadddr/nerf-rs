@@ -50,12 +50,13 @@ fn screen_space_to_world_space(x: f32, y: f32, width: f32, height: f32) -> [f32;
 fn sample_points_along_ray(
     from: [f32; 3],
     to: [f32; 3],
-    NUM_SAMPLES: usize,
-) -> Vec<([f32; 3], f32)> {
+    view_angle: f32,
+    num_samples: usize,
+) -> (Vec<[f32; 3]>, [f32; NUM_POINTS]) {
     let mut points: Vec<[f32; 3]> = Vec::new();
     let mut locations: Vec<f32> = Vec::new();
 
-    for _ in 0..NUM_SAMPLES {
+    for _ in 0..num_samples {
         let t = random::<f32>() * (T_FAR - HITHER) + HITHER;
         let point = vec3_add(from, vec3_scale(to, t));
         points.push(point);
@@ -69,7 +70,20 @@ fn sample_points_along_ray(
 
     points_locations.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
 
-    return points_locations;
+    // TBD - unzip back after sorting by t
+    points = points_locations
+        .iter()
+        .map(|([x, y, z], _)| rotate([*x, *y, *z], view_angle))
+        .collect::<Vec<[f32; 3]>>();
+
+    locations = points_locations
+        .iter()
+        .map(|(_, t)| *t)
+        .collect::<Vec<f32>>()
+        .try_into()
+        .unwrap();
+
+    return (points, locations.try_into().unwrap());
 }
 
 pub fn sample_points_tensor_for_rays(
@@ -77,42 +91,42 @@ pub fn sample_points_tensor_for_rays(
     num_points: usize,
     angle: f32,
 ) -> (Vec<Vec<[f32; 3]>>, Vec<[f32; NUM_POINTS]>) {
-    let points_locations: Vec<Vec<([f32; 3], f32)>> = indices
+    let (points, locations): (Vec<Vec<[f32; 3]>>, Vec<[f32; NUM_POINTS]>) = indices
         .iter()
         .map(|[y, x]| {
             screen_space_to_world_space(*x as f32, *y as f32, WIDTH as f32, HEIGHT as f32)
         })
         .map(|to| {
-            sample_points_along_ray(FROM, to, num_points)
-                .iter()
-                .map(|pt| (rotate(pt.0, angle), pt.1))
-                .collect()
+            sample_points_along_ray(FROM, to, angle, num_points)
+            // .iter()
+            // .map(|pt| (rotate(pt.0, angle), pt.1))
+            // .collect()
         })
         .collect();
+    // these are awkward but rotations are handled more easily while points and locations are zipped
+    // let query_points: Vec<Vec<[f32; 3]>> = points_locations
+    //     .iter()
+    //     .map(|ray_points| {
+    //         ray_points
+    //             .into_iter()
+    //             .map(|([x, y, z], _)| [*x, *y, *z])
+    //             .collect::<Vec<[f32; 3]>>()
+    //     })
+    //     .collect();
 
-    let query_points: Vec<Vec<[f32; 3]>> = points_locations
-        .iter()
-        .map(|ray_points| {
-            ray_points
-                .into_iter()
-                .map(|([x, y, z], _)| [*x, *y, *z])
-                .collect::<Vec<[f32; 3]>>()
-        })
-        .collect();
+    // let distances: Vec<[f32; NUM_POINTS]> = points_locations
+    //     .into_iter()
+    //     .map(|ray_points| {
+    //         ray_points
+    //             .into_iter()
+    //             .map(|(_, t)| t)
+    //             .collect::<Vec<f32>>()
+    //             .try_into()
+    //             .unwrap()
+    //     })
+    //     .collect();
 
-    let distances: Vec<[f32; NUM_POINTS]> = points_locations
-        .into_iter()
-        .map(|ray_points| {
-            ray_points
-                .into_iter()
-                .map(|(_, t)| t)
-                .collect::<Vec<f32>>()
-                .try_into()
-                .unwrap()
-        })
-        .collect();
-
-    return (query_points, distances);
+    return (points, locations);
 }
 
 pub fn sample_points_tensor_along_view_directions(
