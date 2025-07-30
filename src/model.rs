@@ -10,7 +10,7 @@ pub const BATCH_SIZE: i64 = NUM_RAYS as i64 * NUM_POINTS as i64;
 
 pub const INDIM: i64 = 3;
 const HIDDEN_NODES: i64 = 100;
-pub const LABELS: i64 = 4;
+pub const LABELS: i64 = 1;
 
 pub fn hparams() -> HashMap<String, f32> {
     let mut map: HashMap<String, f32> = HashMap::new();
@@ -24,7 +24,7 @@ pub fn hparams() -> HashMap<String, f32> {
 }
 
 #[derive(Debug)]
-struct DensityNet {
+pub struct DensityNet {
     fc1: nn::Linear,
     fc2: nn::Linear,
     fc3: nn::Linear,
@@ -42,7 +42,7 @@ struct RadianceNet {
 }
 
 impl DensityNet {
-    fn new(vs: &nn::Path) -> DensityNet {
+    pub fn new(vs: &nn::Path) -> DensityNet {
         // the MLP FΘ first processes the input 3D coordinate x with 8 fully-connected layers (using ReLU activations and 256 channels per layer)
         // and outputs σ and a 256-dimensional feature vector.
         let fc1 = nn::linear(vs, INDIM, HIDDEN_NODES, Default::default());
@@ -64,6 +64,18 @@ impl DensityNet {
             fc7,
             fc8,
         }
+    }
+    pub fn predict(&self, mut coords: Tensor) -> Tensor {
+        assert_eq!(coords.size(), vec![BATCH_SIZE * INDIM]);
+
+        coords = coords.to(Device::Mps).view((BATCH_SIZE, INDIM));
+        let densities_features = self.forward_t(&coords, true);
+
+        let densities = densities_features
+            .view((NUM_RAYS as i64, NUM_POINTS as i64, HIDDEN_NODES + 1))
+            .permute(&[2, 0, 1])
+            .get(0);
+        return densities.unsqueeze(2);
     }
 }
 
@@ -303,10 +315,18 @@ impl Trainer {
         // const LABELS_BATCHED: usize = LABELS * NUM_RAYS;
         // let gold_flat = array_vec_to_1d_array::<LABELS, LABELS_BATCHED>(&gold);
         // let gold_tensor = Tensor::of_slice(&gold_flat).view((NUM_RAYS as i64, LABELS as i64));
-        assert_eq!(predictions.size(), vec![NUM_RAYS as i64, LABELS]);
-        assert_eq!(gold.size(), vec![NUM_RAYS as i64 * LABELS]);
+        assert_eq!(
+            predictions.size(),
+            vec![NUM_RAYS as i64, NUM_POINTS as i64, LABELS]
+        );
+        assert_eq!(
+            gold.size(),
+            vec![NUM_RAYS as i64 * NUM_POINTS as i64 * LABELS]
+        );
 
-        gold = gold.to(Device::Mps).view((NUM_RAYS as i64, LABELS));
+        gold = gold
+            .to(Device::Mps)
+            .view((NUM_RAYS as i64, NUM_POINTS as i64, LABELS));
         let loss = mse_loss(&predictions, &gold);
 
         // self.backward_scale_grad_step(&loss);
@@ -361,7 +381,7 @@ impl Trainer {
 //     return array;
 // }
 
-pub fn tensor_from_3d(query_points: &Vec<Vec<[f32; 3]>>) -> Tensor {
+pub fn tensor_from_3d<const INNER_DIM: usize>(query_points: &Vec<Vec<[f32; INNER_DIM]>>) -> Tensor {
     Tensor::of_slice(
         &query_points
             .clone()
@@ -387,7 +407,7 @@ pub fn tensor_to_array_vec(a: &Tensor) -> Vec<Vec<f32>> {
 }
 
 #[test]
-pub fn to_tensor() {
+pub fn test_flatten_to_tensor() {
     let x = vec![
         vec![&[1i64, 2i64]],
         vec![&[1i64, 2i64]],

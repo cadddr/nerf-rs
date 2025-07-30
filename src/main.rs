@@ -9,6 +9,7 @@ mod model;
 use model::{
     tensor_from_2d, tensor_from_3d, tensor_to_array_vec, NeRF, INDIM, LABELS, NUM_POINTS, NUM_RAYS,
 };
+use tch::{kind, nn, nn::Optimizer, nn::OptimizerConfig, Device, Kind, Tensor};
 mod display;
 use display::{draw_to_screen, prediction_array_as_u32, run_window};
 mod logging;
@@ -16,7 +17,6 @@ use logging::*;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::time::SystemTime;
-use tch::{kind, Tensor};
 use tensorboard_rs::summary_writer::SummaryWriter;
 use textplots::{Chart, Plot, Shape};
 
@@ -42,13 +42,16 @@ fn main() {
     );
     let imgs = image_loading::load_multiple_images_as_arrays(img_paths);
 
-    let mut model = model::NeRF::new();
-    let mut trainer = model::Trainer::new(&model.vs, args.learning_rate);
+    // let mut model = model::NeRF::new();
+    let vs = nn::VarStore::new(Device::Mps);
+    let mut model = model::DensityNet::new(&vs.root());
+    // let mut trainer = model::Trainer::new(&model.vs, args.learning_rate);
+    let mut trainer = model::Trainer::new(&vs, args.learning_rate);
     log_params(&mut writer, &model::hparams());
 
-    if args.load_path != "" {
-        model.load(&format!("{}/{}", args.save_dir, &args.load_path));
-    }
+    // if args.load_path != "" {
+    //     model.load(&format!("{}/{}", args.save_dir, &args.load_path));
+    // }
 
     // training step takes place inside a window update callback
     // it used to be such that window was updated with each batch predictions but it takes way too long to draw on each iter
@@ -56,16 +59,18 @@ fn main() {
     let mut batch_losses: Vec<f32> = Vec::new();
     let mut backbuffer = [0; WIDTH * HEIGHT];
     let update_window_buffer = |buffer: &mut Vec<u32>| {
-        let (indices, query_points, distances, gold) = get_train_batch(&imgs, iter);
+        // let (indices, query_points, distances, gold) = get_train_batch(&imgs, iter);
+        let (query_points, gold) = get_density_batch(&imgs, iter);
 
-        let (predictions, densities) = model.predict(
-            tensor_from_3d(&query_points),
-            tensor_from_2d::<NUM_POINTS>(&distances),
-        );
+        // let (predictions, densities) = model.predict(
+        //     tensor_from_3d(&query_points),
+        //     tensor_from_2d::<NUM_POINTS>(&distances),
+        // );
+        let densities = model.predict(tensor_from_3d(&query_points));
 
         if iter % args.logging_steps == 0 {
-            log_screen_coords(&mut writer, &indices, iter);
-            log_query_points(&mut writer, &query_points, &distances, iter);
+            // log_screen_coords(&mut writer, &indices, iter);
+            // log_query_points(&mut writer, &query_points, &distances, iter);
             log_density_maps(
                 &mut writer,
                 &query_points,
@@ -81,9 +86,15 @@ fn main() {
         }
 
         if args.do_train {
+            // let loss: f32 = trainer.step(
+            //     &predictions,
+            //     tensor_from_2d::<{ LABELS as usize }>(&gold),
+            //     &iter,
+            //     args.accumulation_steps,
+            // );
             let loss: f32 = trainer.step(
-                &predictions,
-                tensor_from_2d::<{ LABELS as usize }>(&gold),
+                &densities,
+                tensor_from_3d::<{ LABELS as usize }>(&gold),
                 &iter,
                 args.accumulation_steps,
             );
@@ -95,17 +106,17 @@ fn main() {
                 .lineplot(&Shape::Continuous(Box::new(|x| batch_losses[x as usize])))
                 .display();
 
-            if iter % args.save_steps == 0 {
-                model.save(&format!("{}/checkpoint-{}-{}.ot", args.save_dir, ts, iter));
-            }
+            // if iter % args.save_steps == 0 {
+            //     model.save(&format!("{}/checkpoint-{}-{}.ot", args.save_dir, ts, iter));
+            // }
         }
         if iter % args.eval_steps == 0 {
             backbuffer = [0; WIDTH * HEIGHT];
             if args.eval_on_train {
-                draw_predictions(&mut backbuffer, indices, predictions);
-                log_prediction(&mut writer, &mut backbuffer, iter);
+                // draw_predictions(&mut backbuffer, indices, predictions);
+                // log_prediction(&mut writer, &mut backbuffer, iter);
             } else {
-                draw_valid_predictions(&mut backbuffer, iter, &model);
+                // draw_valid_predictions(&mut backbuffer, iter, &model);
             }
         }
         draw_to_screen(buffer, &backbuffer, args.debug, &imgs, &iter); // this is needed on each re-draw otherwise screen gets blank
@@ -142,6 +153,29 @@ fn get_random_screen_coords(num_rays: usize) -> Vec<[usize; 2]> {
         .collect();
 
     return indices;
+}
+
+fn get_density_batch(
+    imgs: &Vec<Vec<[f32; 4]>>,
+    iter: usize,
+) -> (Vec<Vec<[f32; INDIM as usize]>>, Vec<Vec<[f32; 1]>>) {
+    let n = iter % imgs.len(); // if we're shuffling views - angles should change accordingly
+    let angle = (n as f32 / imgs.len() as f32) * 2. * std::f32::consts::PI;
+    let indices = get_random_screen_coords(NUM_RAYS);
+    let (query_points, _) = sample_ray_points_for_screen_coords(&indices, NUM_POINTS, angle); // need mix rays from multiple views
+    let mut gold: Vec<Vec<[f32; 1]>> = Vec::new();
+
+    for (ray_points) in &query_points {
+        let mut ray_gold: Vec<[f32; 1]> = Vec::new();
+        for [x, y, z] in ray_points {
+            let distance_from_center = (x * x + y * y + z * z).sqrt();
+            let true_density = if distance_from_center < 0.5 { 1.0 } else { 0.0 };
+            ray_gold.push([true_density]);
+        }
+        gold.push(ray_gold);
+    }
+
+    return (query_points, gold);
 }
 
 // gets query points for random screen coords and views for training
