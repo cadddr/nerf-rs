@@ -4,7 +4,7 @@ use std::convert::{TryFrom, TryInto};
 use tch::nn::ModuleT;
 use tch::{nn, nn::Optimizer, nn::OptimizerConfig, Device, Kind, Tensor};
 
-pub const NUM_RAYS: usize = 4096;
+pub const NUM_RAYS: usize = 16384;
 pub const NUM_POINTS: usize = 16;
 pub const BATCH_SIZE: i64 = NUM_RAYS as i64 * NUM_POINTS as i64;
 
@@ -65,7 +65,10 @@ impl DensityNet {
             fc8,
         }
     }
-    pub fn predict(&self, mut coords: Tensor) -> Tensor {
+    pub fn predict<const BATCH_SIZE: i64, const NUM_RAYS: usize, const NUM_POINTS: usize>(
+        &self,
+        mut coords: Tensor,
+    ) -> Tensor {
         assert_eq!(coords.size(), vec![BATCH_SIZE * INDIM]);
 
         coords = coords.to(Device::Mps).view((BATCH_SIZE, INDIM));

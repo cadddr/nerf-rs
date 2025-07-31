@@ -49,10 +49,10 @@ pub struct Cli {
     #[arg(long, default_value_t = 50000)]
     pub num_iter: usize,
 
-    #[arg(long, default_value_t = 101)]
+    #[arg(long, default_value_t = 1)]
     pub eval_steps: usize,
 
-    #[arg(long, default_value_t = 1001)]
+    #[arg(long, default_value_t = 101)]
     pub logging_steps: usize,
 
     #[arg(long, default_value_t = 5001)]

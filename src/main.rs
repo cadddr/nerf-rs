@@ -3,11 +3,15 @@ use clap::Parser;
 use cli::Cli;
 mod image_loading;
 mod ray_sampling;
-use ray_sampling::{sample_ray_points_for_screen_coords, HEIGHT, WIDTH};
+use ray_sampling::{
+    sample_and_rotate_ray_points_for_screen_coords, sample_and_rotate_rays_for_screen_coords,
+    HEIGHT, WIDTH,
+};
 mod input_transforms;
 mod model;
 use model::{
-    tensor_from_2d, tensor_from_3d, tensor_to_array_vec, NeRF, INDIM, LABELS, NUM_POINTS, NUM_RAYS,
+    tensor_from_2d, tensor_from_3d, tensor_to_array_vec, NeRF, BATCH_SIZE, INDIM, LABELS,
+    NUM_POINTS, NUM_RAYS,
 };
 use tch::{kind, nn, nn::Optimizer, nn::OptimizerConfig, Device, Kind, Tensor};
 mod display;
@@ -19,6 +23,8 @@ use rand::thread_rng;
 use std::time::SystemTime;
 use tensorboard_rs::summary_writer::SummaryWriter;
 use textplots::{Chart, Plot, Shape};
+
+use crate::model::DensityNet;
 
 fn main() {
     /*
@@ -66,7 +72,8 @@ fn main() {
         //     tensor_from_3d(&query_points),
         //     tensor_from_2d::<NUM_POINTS>(&distances),
         // );
-        let densities = model.predict(tensor_from_3d(&query_points));
+        let densities =
+            model.predict::<BATCH_SIZE, NUM_RAYS, NUM_POINTS>(tensor_from_3d(&query_points));
 
         if iter % args.logging_steps == 0 {
             // log_screen_coords(&mut writer, &indices, iter);
@@ -118,6 +125,7 @@ fn main() {
             } else {
                 // draw_valid_predictions(&mut backbuffer, iter, &model);
             }
+            measure_view_invariance(&mut writer, &model, iter, 0., std::f32::consts::PI / 2.);
         }
         draw_to_screen(buffer, &backbuffer, args.debug, &imgs, &iter); // this is needed on each re-draw otherwise screen gets blank
 
@@ -128,6 +136,30 @@ fn main() {
     };
 
     run_window(update_window_buffer, WIDTH, HEIGHT);
+}
+
+fn measure_view_invariance(
+    writer: &mut SummaryWriter,
+    model: &DensityNet,
+    iter: usize,
+    angle1: f32,
+    angle2: f32,
+) {
+    writer.add_scalar(
+        "density0",
+        model
+            .predict::<1, 1, 1>(tensor_from_3d(&vec![vec![[0., 0., 0.]]]))
+            .get(0)
+            .get(0)
+            .try_into()
+            .unwrap(),
+        iter,
+    );
+
+    let rays1 =
+        sample_and_rotate_rays_for_screen_coords(&get_random_screen_coords(NUM_RAYS), angle1);
+    let rays2 =
+        sample_and_rotate_rays_for_screen_coords(&get_random_screen_coords(NUM_RAYS), angle2);
 }
 
 fn get_random_screen_coords(num_rays: usize) -> Vec<[usize; 2]> {
@@ -162,7 +194,8 @@ fn get_density_batch(
     let n = iter % imgs.len(); // if we're shuffling views - angles should change accordingly
     let angle = (n as f32 / imgs.len() as f32) * 2. * std::f32::consts::PI;
     let indices = get_random_screen_coords(NUM_RAYS);
-    let (query_points, _) = sample_ray_points_for_screen_coords(&indices, NUM_POINTS, angle); // need mix rays from multiple views
+    let (query_points, _) =
+        sample_and_rotate_ray_points_for_screen_coords(&indices, NUM_POINTS, angle); // need mix rays from multiple views
     let mut gold: Vec<Vec<[f32; 1]>> = Vec::new();
 
     for (ray_points) in &query_points {
@@ -201,7 +234,7 @@ fn get_train_batch(
     //            .collect();
 
     let (query_points, distances) =
-        sample_ray_points_for_screen_coords(&indices, NUM_POINTS, angle); // need mix rays from multiple views
+        sample_and_rotate_ray_points_for_screen_coords(&indices, NUM_POINTS, angle); // need mix rays from multiple views
 
     let gold: Vec<[f32; 4]> = indices
         .iter()
@@ -239,7 +272,7 @@ fn draw_valid_predictions(backbuffer: &mut [u32; WIDTH * HEIGHT], iter: usize, m
             .unwrap();
 
         let (query_points, distances) =
-            sample_ray_points_for_screen_coords(&indices_batch, NUM_POINTS, angle);
+            sample_and_rotate_ray_points_for_screen_coords(&indices_batch, NUM_POINTS, angle);
 
         let (predictions, _) = model.predict(
             tensor_from_3d(&query_points),
