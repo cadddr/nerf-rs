@@ -5,7 +5,7 @@ mod image_loading;
 mod ray_sampling;
 use ray_sampling::{
     sample_and_rotate_ray_points_for_screen_coords, sample_and_rotate_rays_for_screen_coords,
-    HEIGHT, WIDTH,
+    trace_ray_intersections, HEIGHT, WIDTH,
 };
 mod input_transforms;
 mod model;
@@ -27,6 +27,8 @@ use textplots::{Chart, Plot, Shape};
 use crate::model::DensityNet;
 
 fn main() {
+    ray_intersections();
+    panic!();
     /*
     Main loop. Reads image(s), inits model, runs train loop (within window refresh handler);
     on eval - draw to backbuffer, which is displayed on every frame
@@ -125,7 +127,7 @@ fn main() {
             } else {
                 // draw_valid_predictions(&mut backbuffer, iter, &model);
             }
-            measure_view_invariance(&mut writer, &model, iter, 0., std::f32::consts::PI / 2.);
+            // measure_view_invariance(&mut writer, &model, iter, 0., std::f32::consts::PI / 2.);
         }
         draw_to_screen(buffer, &backbuffer, args.debug, &imgs, &iter); // this is needed on each re-draw otherwise screen gets blank
 
@@ -138,29 +140,45 @@ fn main() {
     run_window(update_window_buffer, WIDTH, HEIGHT);
 }
 
-fn measure_view_invariance(
-    writer: &mut SummaryWriter,
-    model: &DensityNet,
-    iter: usize,
-    angle1: f32,
-    angle2: f32,
-) {
-    writer.add_scalar(
-        "density0",
-        model
-            .predict::<1, 1, 1>(tensor_from_3d(&vec![vec![[0., 0., 0.]]]))
-            .get(0)
-            .get(0)
-            .try_into()
-            .unwrap(),
-        iter,
-    );
-
-    let rays1 =
-        sample_and_rotate_rays_for_screen_coords(&get_random_screen_coords(NUM_RAYS), angle1);
-    let rays2 =
-        sample_and_rotate_rays_for_screen_coords(&get_random_screen_coords(NUM_RAYS), angle2);
+// #[test]
+fn ray_intersections() {
+    let update_window_buffer = |buffer: &mut Vec<u32>| {
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                if trace_ray_intersections(x as f32, y as f32) {
+                    buffer[y * WIDTH + x] = display::from_u8_rgb(255u8, 255u8, 255u8);
+                } else {
+                    buffer[y * WIDTH + x] = display::from_u8_rgb(0u8, 0u8, 0u8);
+                }
+            }
+        }
+    };
+    run_window(update_window_buffer, WIDTH, HEIGHT);
 }
+
+// fn measure_view_invariance(
+//     writer: &mut SummaryWriter,
+//     model: &DensityNet,
+//     iter: usize,
+//     angle1: f32,
+//     angle2: f32,
+// ) {
+//     writer.add_scalar(
+//         "density0",
+//         model
+//             .predict::<1, 1, 1>(tensor_from_3d(&vec![vec![[0., 0., 0.]]]))
+//             .get(0)
+//             .get(0)
+//             .try_into()
+//             .unwrap(),
+//         iter,
+//     );
+
+//     let rays1 =
+//         sample_and_rotate_rays_for_screen_coords(&get_random_screen_coords(NUM_RAYS), angle1);
+//     let rays2 =
+//         sample_and_rotate_rays_for_screen_coords(&get_random_screen_coords(NUM_RAYS), angle2);
+// }
 
 fn get_random_screen_coords(num_rays: usize) -> Vec<[usize; 2]> {
     // generating random tensors is faster

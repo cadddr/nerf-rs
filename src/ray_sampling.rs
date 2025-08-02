@@ -1,9 +1,6 @@
 use crate::model::NUM_POINTS;
 use rand::random;
-use vecmath::{
-    row_mat3x4_transform_pos3, vec2_cross, vec3_add, vec3_cross, vec3_dot, vec3_len,
-    vec3_normalized, vec3_scale, vec3_sub,
-};
+use vecmath::*;
 const HITHER: f32 = 0.05;
 const FOV: f32 = std::f32::consts::PI / 3.;
 
@@ -30,7 +27,7 @@ fn rotate(vec: [f32; 3], angle: f32) -> [f32; 3] {
     //    from = multvec3(rot, from.sub(at)).add(at);
 }
 
-fn screen_to_world(x: f32, y: f32, width: f32, height: f32) -> [f32; 3] {
+pub fn screen_to_world(x: f32, y: f32, width: f32, height: f32) -> [f32; 3] {
     let off: f32 = f32::tan(FOV / 2.) * HITHER;
     let offset_left = off - 2. * off * x / width;
     let offset_up = off - 2. * off * y / height;
@@ -125,34 +122,49 @@ pub fn ray_intersection(
     a: [f32; 3],
     b: [f32; 3],
 ) -> (f32, f32, [f32; 3], [f32; 3]) {
-    let l = vec3_sub(v, c);
-    // println!("v-c {:?}", l);
-    let m = vec3_sub(b, a);
-    // println!("b-a {:?}", m);
-    // try:
-    //     t = ((b-a).cross(c-a)).mag() / (b-a).dot(PVector(-l.y,l.x,0))
-    //     p = (c-a).dot(PVector(-l.y,l.x,0))/(b-a).dot(PVector(-l.y,l.x,0))
-    //     // # if p > 0 and p < 9000 and t > 0 and t < 1:
-    //     return t, p
-    // except:
-    //     return -1,-1
-    let l_ = vec3_cross(l, m); //[-l.get(1).unwrap(), *l.get(0).unwrap(), 0.];
-                               // println!("l x m {:?}", l_);
-                               // println!("m . l_ {:?}", vec3_dot(m, l_));
-    let t = vec3_len(vec3_cross(m, vec3_sub(c, a))) / vec3_len(l_); //vec3_dot(m, l_);
-    let p = vec3_len(vec3_cross(vec3_sub(c, a), l)) / vec3_len(l_); //vec3_dot(m, l_);
+    let v_c = vec3_sub(v, c);
+    let b_a = vec3_sub(b, a);
+    let c_a = vec3_sub(c, a);
+
+    // let A_ = mat3_inv(mat3_transposed([b_a, v_c, [1., 1., 1.]]));
+
+    // "Compatibility condition {:?} = 0?",
+    if mat3_det([v_c, b_a, c_a]).abs() > 1e-2 {
+        return (-1., -1., a, b);
+    }
+
+    let b_axv_c = vec3_dot([1., 1., 1.], vec3_cross(b_a, vec3_scale(v_c, -1.)));
+    let t = vec3_dot([1., 1., 1.], vec3_cross(c_a, vec3_scale(v_c, -1.))) / b_axv_c;
+    let p = vec3_dot([1., 1., 1.], vec3_cross(b_a, c_a)) / b_axv_c;
+    // let s =
+
+    // let [t, p] = [
+    //     c_a[0] * A_[0][0] + c_a[1] * A_[1][0] + c_a[2] * A_[2][0],
+    //     c_a[0] * (-A_[0][1]) + c_a[1] * (-A_[1][1]) + c_a[2] * (-A_[2][1]),
+    // ];
+    // vecmath::(vecmath::mat3x2_inv(mat2x3_transposed([b_a, v_c])), c_a);
 
     // if p > 0. && p < 9000. && t > 0. && t < 1. {
     return (
         t,
         p,
-        vec3_add(c, vec3_scale(l, t)),
-        vec3_add(a, vec3_scale(m, p)),
+        vec3_add(a, vec3_scale(b_a, t)),
+        vec3_add(c, vec3_scale(v_c, p)),
     );
     // }
     // return (-1., -1.);
 }
-
+#[test]
+fn matmul() {
+    println!(
+        "{:?}",
+        vecmath::mat3x2_inv(mat2x3_transposed([[1., 2., 3.], [4., 5., 6.]]))
+    );
+    println!(
+        "{:?}",
+        mat3_det(mat3_transposed([[1., 1., 1.], [0., 0., -2.], [1., 0., 1.]]))
+    )
+}
 #[test]
 fn test_intersection() {
     println!(
@@ -181,7 +193,15 @@ fn test_intersection() {
     );
     println!(
         "a+(b-a)*t, c+(v-c)*p {:?}",
-        ray_intersection(FROM, AT, [-1., -1., 0.], [1., 1., 0.]) // diagonal -x-y to xy
+        ray_intersection(FROM, AT, [-1., -1., 0.], [1., 1., 0.]) // diagonal -x-y to xy FAILS
+    );
+    println!(
+        "a+(b-a)*t, c+(v-c)*p {:?}",
+        ray_intersection(FROM, AT, [-1., 1., 0.], [1., -1., 0.]) // diagonal -x-y to xy PASSES
+    );
+    println!(
+        "a+(b-a)*t, c+(v-c)*p {:?}",
+        ray_intersection(FROM, AT, [-1., 0., 0.], [1., 1., 0.]) // diagonal -x-y to xy PASSES should FAIL
     );
     println!(
         "a+(b-a)*t, c+(v-c)*p {:?}",
@@ -194,10 +214,35 @@ fn test_intersection() {
     );
 }
 
+pub fn trace_ray_intersection(x: f32, y: f32, a: [f32; 3], b: [f32; 3]) -> bool {
+    let to = screen_to_world(x, y, WIDTH as f32, HEIGHT as f32);
+    // println!("{:?}", to);
+    // let [x, y, z] = vec3_scale(to, 1.);
+    // let distance_from_center = (x * x + y * y + 1. - z * z).sqrt();
+    // return distance_from_center < 0.5;
+
+    let (mut t, mut p, _, _) = ray_intersection(FROM, vec3_add(to, FROM), a, b);
+    if p >= 0. && p < 9000. && t >= 0. && t <= 1. {
+        return true;
+    }
+    return false;
+}
+
+pub fn trace_ray_intersections(x: f32, y: f32) -> bool {
+    trace_ray_intersection(x, y, [-1., 0., 1.], [1., 0., 1.])
+        || trace_ray_intersection(x, y, [0., 1., 1.], [0., -1., 1.])
+        || trace_ray_intersection(x, y, [1., 0.5, 0.], [-1., -0.5, 0.])
+        || trace_ray_intersection(x, y, [1., -0.5, -1.], [-1., 0.5, 1.])
+    // || trace_ray_intersection(x, y, [-1., -1., 1.5], [1., -1.1, 1.5])
+    // || trace_ray_intersection(x, y, [1., -1., 1.5], [0., 1., 1.5])
+    // || trace_ray_intersection(x, y, [0., 1., 1.5], [-1., -1., 1.5])
+}
+
 #[test]
 fn test_cross_determinant() {
     println!("{:?}", vec2_cross([7., 5.], [3., 2.])); // 7*2 - 3*5 = -1
     println!("{:?}", vec3_cross([7., 5., 0.], [3., 2., 0.])); // 7*2 - 3*5 = -1
+    println!("{:?}", vec3_cross([7., 5., 4.], [3., 2., 9.])); // sum to -13.
 }
 
 #[test]
