@@ -7,7 +7,7 @@ pub struct Cli {
     #[arg(long, default_value_t = false)]
     pub debug: bool,
 
-    #[arg(long, default_value_t = true)]
+    #[arg(long, default_value_t = false)]
     pub do_train: bool,
 
     #[arg(long, default_value_t = true)]

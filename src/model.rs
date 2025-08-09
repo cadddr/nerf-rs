@@ -4,7 +4,7 @@ use std::convert::{TryFrom, TryInto};
 use tch::nn::ModuleT;
 use tch::{nn, nn::Optimizer, nn::OptimizerConfig, Device, Kind, Tensor};
 
-pub const NUM_RAYS: usize = 16384;
+pub const NUM_RAYS: usize = 1024;
 pub const NUM_POINTS: usize = 16;
 pub const BATCH_SIZE: i64 = NUM_RAYS as i64 * NUM_POINTS as i64;
 

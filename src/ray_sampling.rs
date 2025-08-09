@@ -4,9 +4,9 @@ use vecmath::*;
 const HITHER: f32 = 0.05;
 const FOV: f32 = std::f32::consts::PI / 3.;
 
-const UP: [f32; 3] = [0., 1., 0.];
-const FROM: [f32; 3] = [0., 0., -1.];
-const AT: [f32; 3] = [0., 0., 1.];
+pub const UP: [f32; 3] = [0., 1., 0.];
+pub const FROM: [f32; 3] = [0., 0., -1.];
+pub const AT: [f32; 3] = [0., 0., 1.];
 
 pub const T_FAR: f32 = 2.;
 
@@ -229,13 +229,15 @@ pub fn trace_ray_intersection(x: f32, y: f32, a: [f32; 3], b: [f32; 3]) -> bool 
 }
 
 pub fn trace_ray_intersections(x: f32, y: f32) -> bool {
-    trace_ray_intersection(x, y, [-1., 0., 1.], [1., 0., 1.])
-        || trace_ray_intersection(x, y, [0., 1., 1.], [0., -1., 1.])
-        || trace_ray_intersection(x, y, [1., 0.5, 0.], [-1., -0.5, 0.])
-        || trace_ray_intersection(x, y, [1., -0.5, -1.], [-1., 0.5, 1.])
-    // || trace_ray_intersection(x, y, [-1., -1., 1.5], [1., -1.1, 1.5])
-    // || trace_ray_intersection(x, y, [1., -1., 1.5], [0., 1., 1.5])
-    // || trace_ray_intersection(x, y, [0., 1., 1.5], [-1., -1., 1.5])
+    trace_ray_intersection(x, y, [-0.5, 0., 0.], [0.5, -0.5, 0.0])
+        || trace_ray_intersection(x, y, [0.5, -0.5, -0.0], [0.5, 0.5, 0.0])
+        || trace_ray_intersection(x, y, [-0.5, 0., 0.], [0.5, 0.5, 0.0])
+        || trace_ray_intersection(x, y, [0.5, 0.5, -0.], [0.5, -0.5, 0.])
+        || trace_ray_intersection(x, y, [-0.5, 0., 0.], [0.5, -0.5, 1.])
+        || trace_ray_intersection(x, y, [0.5, -0.5, 1.], [0.5, 0.5, 1.])
+        || trace_ray_intersection(x, y, [-0.5, 0., 0.], [0.5, 0.5, 1.])
+        || trace_ray_intersection(x, y, [0.5, -0.5, 1.], [0.5, -0.5, 0.])
+        || trace_ray_intersection(x, y, [0.5, 0.5, 1.], [0.5, 0.51, 0.])
 }
 
 #[test]

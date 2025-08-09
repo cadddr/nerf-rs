@@ -3,10 +3,7 @@ use clap::Parser;
 use cli::Cli;
 mod image_loading;
 mod ray_sampling;
-use ray_sampling::{
-    sample_and_rotate_ray_points_for_screen_coords, sample_and_rotate_rays_for_screen_coords,
-    trace_ray_intersections, HEIGHT, WIDTH,
-};
+use ray_sampling::*;
 mod input_transforms;
 mod model;
 use model::{
@@ -14,8 +11,9 @@ use model::{
     NUM_POINTS, NUM_RAYS,
 };
 use tch::{kind, nn, nn::Optimizer, nn::OptimizerConfig, Device, Kind, Tensor};
+use vecmath::*;
 mod display;
-use display::{draw_to_screen, prediction_array_as_u32, run_window};
+use display::*;
 mod logging;
 use logging::*;
 use rand::seq::SliceRandom;
@@ -27,8 +25,6 @@ use textplots::{Chart, Plot, Shape};
 use crate::model::DensityNet;
 
 fn main() {
-    ray_intersections();
-    panic!();
     /*
     Main loop. Reads image(s), inits model, runs train loop (within window refresh handler);
     on eval - draw to backbuffer, which is displayed on every frame
@@ -127,7 +123,7 @@ fn main() {
             } else {
                 // draw_valid_predictions(&mut backbuffer, iter, &model);
             }
-            // measure_view_invariance(&mut writer, &model, iter, 0., std::f32::consts::PI / 2.);
+            measure_view_invariance(&mut writer, &model, iter, 0., std::f32::consts::PI / 2.);
         }
         draw_to_screen(buffer, &backbuffer, args.debug, &imgs, &iter); // this is needed on each re-draw otherwise screen gets blank
 
@@ -140,8 +136,8 @@ fn main() {
     run_window(update_window_buffer, WIDTH, HEIGHT);
 }
 
-// #[test]
-fn ray_intersections() {
+#[test]
+fn display_ray_intersections() {
     let update_window_buffer = |buffer: &mut Vec<u32>| {
         for y in 0..HEIGHT {
             for x in 0..WIDTH {
@@ -156,29 +152,91 @@ fn ray_intersections() {
     run_window(update_window_buffer, WIDTH, HEIGHT);
 }
 
-// fn measure_view_invariance(
-//     writer: &mut SummaryWriter,
-//     model: &DensityNet,
-//     iter: usize,
-//     angle1: f32,
-//     angle2: f32,
-// ) {
-//     writer.add_scalar(
-//         "density0",
-//         model
-//             .predict::<1, 1, 1>(tensor_from_3d(&vec![vec![[0., 0., 0.]]]))
-//             .get(0)
-//             .get(0)
-//             .try_into()
-//             .unwrap(),
-//         iter,
-//     );
+fn measure_view_invariance(
+    writer: &mut SummaryWriter,
+    model: &DensityNet,
+    iter: usize,
+    angle1: f32,
+    angle2: f32,
+) {
+    // writer.add_scalar(
+    //     "density0",
+    //     model
+    //         .predict::<1, 1, 1>(tensor_from_3d(&vec![vec![[0., 0., 0.]]]))
+    //         .get(0)
+    //         .get(0)
+    //         .try_into()
+    //         .unwrap(),
+    //     iter,
+    // );
+    println!(
+        "sampling {:?} rays for angles {:?} {:?}",
+        NUM_RAYS, angle1, angle2
+    );
+    let rays1 =
+        sample_and_rotate_rays_for_screen_coords(&get_random_screen_coords(NUM_RAYS), angle1);
+    let rays2 =
+        sample_and_rotate_rays_for_screen_coords(&get_random_screen_coords(NUM_RAYS), angle2);
 
-//     let rays1 =
-//         sample_and_rotate_rays_for_screen_coords(&get_random_screen_coords(NUM_RAYS), angle1);
-//     let rays2 =
-//         sample_and_rotate_rays_for_screen_coords(&get_random_screen_coords(NUM_RAYS), angle2);
-// }
+    let backbuffer_yx: &mut [u32; 100 * 100] = &mut [0u32; 100 * 100];
+    let backbuffer_zx: &mut [u32; 100 * 100] = &mut [0u32; 100 * 100];
+    let backbuffer_yz: &mut [u32; 100 * 100] = &mut [0u32; 100 * 100];
+
+    for ray1 in rays1 {
+        // println!("{:?} vs {:?}", ray1, ray2);
+        // panic!("");
+        for ray2 in rays2.clone() {
+            let view = vec3_normalized(vec3_sub(AT, FROM));
+            let left = vec3_normalized(vec3_cross(view, UP));
+            let (t, p, a, b) =
+                ray_intersection(FROM, vec3_add(ray1, FROM), left, vec3_add(ray2, left));
+            if p > 0. && p <= 2. && t > 0. && t <= 2. {
+                println!("{:?} vs {:?} -> {:?}", ray1, ray2, [t, p]);
+                for [world_x, world_y, world_z] in [a, b] {
+                    let y = f32::floor(50. * (world_y + 1.)) as usize;
+                    let x = f32::floor(50. * (world_x + 1.)) as usize;
+                    let z = f32::floor(25. * (world_z + 1.)) as usize;
+
+                    backbuffer_yx[y * 100 + x] = prediction_array_as_u32(&[1., 1., 1., 1.]);
+                    backbuffer_zx[z * 100 + x] = prediction_array_as_u32(&[1., 1., 1., 1.]);
+                    backbuffer_yz[y * 100 + z] = prediction_array_as_u32(&[1., 1., 1., 1.]);
+                }
+            }
+        }
+    }
+
+    writer.add_image(
+        "intersections_yx",
+        &backbuffer_yx
+            .iter()
+            .map(rgba_to_u8_array)
+            .flatten()
+            .collect::<Vec<u8>>(),
+        &vec![3, 100, 100][..],
+        iter,
+    );
+    writer.add_image(
+        "intersections_zx",
+        &backbuffer_zx
+            .iter()
+            .map(rgba_to_u8_array)
+            .flatten()
+            .collect::<Vec<u8>>(),
+        &vec![3, 100, 100][..],
+        iter,
+    );
+
+    writer.add_image(
+        "intersections_yz",
+        &backbuffer_yz
+            .iter()
+            .map(rgba_to_u8_array)
+            .flatten()
+            .collect::<Vec<u8>>(),
+        &vec![3, 100, 100][..],
+        iter,
+    );
+}
 
 fn get_random_screen_coords(num_rays: usize) -> Vec<[usize; 2]> {
     // generating random tensors is faster
