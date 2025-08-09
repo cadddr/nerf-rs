@@ -142,6 +142,58 @@ pub fn log_density_maps(
     );
 }
 
+pub fn log_rays_intersections(
+    writer: &mut SummaryWriter,
+    intersections: Vec<[f32; 3]>,
+    iter: usize,
+) {
+    let backbuffer_yx: &mut [u32; 100 * 100] = &mut [0u32; 100 * 100];
+    let backbuffer_zx: &mut [u32; 100 * 100] = &mut [0u32; 100 * 100];
+    let backbuffer_yz: &mut [u32; 100 * 100] = &mut [0u32; 100 * 100];
+
+    for [world_x, world_y, world_z] in intersections {
+        let y = f32::floor(50. * (world_y + 1.)) as usize;
+        let x = f32::floor(50. * (world_x + 1.)) as usize;
+        let z = f32::floor(25. * (world_z + 1.)) as usize;
+
+        backbuffer_yx[y * 100 + x] = prediction_array_as_u32(&[1., 1., 1., 1.]);
+        backbuffer_zx[z * 100 + x] = prediction_array_as_u32(&[1., 1., 1., 1.]);
+        backbuffer_yz[y * 100 + z] = prediction_array_as_u32(&[1., 1., 1., 1.]);
+    }
+
+    writer.add_image(
+        "intersections_yx",
+        &backbuffer_yx
+            .iter()
+            .map(rgba_to_u8_array)
+            .flatten()
+            .collect::<Vec<u8>>(),
+        &vec![3, 100, 100][..],
+        iter,
+    );
+    writer.add_image(
+        "intersections_zx",
+        &backbuffer_zx
+            .iter()
+            .map(rgba_to_u8_array)
+            .flatten()
+            .collect::<Vec<u8>>(),
+        &vec![3, 100, 100][..],
+        iter,
+    );
+
+    writer.add_image(
+        "intersections_yz",
+        &backbuffer_yz
+            .iter()
+            .map(rgba_to_u8_array)
+            .flatten()
+            .collect::<Vec<u8>>(),
+        &vec![3, 100, 100][..],
+        iter,
+    );
+}
+
 pub fn log_prediction(
     writer: &mut SummaryWriter,
     backbuffer: &mut [u32; WIDTH * HEIGHT],

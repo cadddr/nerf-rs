@@ -13,7 +13,9 @@ pub const T_FAR: f32 = 2.;
 pub const WIDTH: usize = 128;
 pub const HEIGHT: usize = 128;
 
-fn rotate(vec: [f32; 3], angle: f32) -> [f32; 3] {
+const TOL: f32 = 1e-5;
+
+pub fn rotate(vec: [f32; 3], angle: f32) -> [f32; 3] {
     let c = f32::cos(angle);
     let s = f32::sin(angle);
     let rot = [
@@ -129,7 +131,7 @@ pub fn ray_intersection(
     // let A_ = mat3_inv(mat3_transposed([b_a, v_c, [1., 1., 1.]]));
 
     // "Compatibility condition {:?} = 0?",
-    if mat3_det([v_c, b_a, c_a]).abs() > 1e-2 {
+    if mat3_det([v_c, b_a, c_a]).abs() > TOL {
         return (-1., -1., a, b);
     }
 
@@ -238,6 +240,32 @@ pub fn trace_ray_intersections(x: f32, y: f32) -> bool {
         || trace_ray_intersection(x, y, [-0.5, 0., 0.], [0.5, 0.5, 1.])
         || trace_ray_intersection(x, y, [0.5, -0.5, 1.], [0.5, -0.5, 0.])
         || trace_ray_intersection(x, y, [0.5, 0.5, 1.], [0.5, 0.51, 0.])
+}
+
+pub fn get_view_rays_intersections(
+    rays1: Vec<[f32; 3]>,
+    rays2: Vec<[f32; 3]>,
+    angle: f32,
+) -> Vec<[f32; 3]> {
+    let mut intersections: Vec<[f32; 3]> = Vec::new();
+
+    for ray1 in rays1 {
+        for ray2 in rays2.clone() {
+            let from_rot = rotate(FROM, angle);
+
+            let (t, p, a, b) = ray_intersection(
+                FROM,
+                vec3_add(ray1, FROM),
+                from_rot,
+                vec3_add(ray2, from_rot),
+            );
+            if p > 0. && p <= T_FAR && t > 0. && t <= T_FAR {
+                intersections.push(a);
+                intersections.push(b);
+            }
+        }
+    }
+    return intersections;
 }
 
 #[test]

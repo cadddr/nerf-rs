@@ -123,7 +123,9 @@ fn main() {
             } else {
                 // draw_valid_predictions(&mut backbuffer, iter, &model);
             }
-            measure_view_invariance(&mut writer, &model, iter, 0., std::f32::consts::PI / 2.);
+            let n = iter % imgs.len(); // if we're shuffling views - angles should change accordingly
+            let angle = (n as f32 / imgs.len() as f32) * 2. * std::f32::consts::PI;
+            measure_view_invariance(&mut writer, &model, iter, angle);
         }
         draw_to_screen(buffer, &backbuffer, args.debug, &imgs, &iter); // this is needed on each re-draw otherwise screen gets blank
 
@@ -156,8 +158,7 @@ fn measure_view_invariance(
     writer: &mut SummaryWriter,
     model: &DensityNet,
     iter: usize,
-    angle1: f32,
-    angle2: f32,
+    angle: f32,
 ) {
     // writer.add_scalar(
     //     "density0",
@@ -169,73 +170,14 @@ fn measure_view_invariance(
     //         .unwrap(),
     //     iter,
     // );
-    println!(
-        "sampling {:?} rays for angles {:?} {:?}",
-        NUM_RAYS, angle1, angle2
-    );
-    let rays1 =
-        sample_and_rotate_rays_for_screen_coords(&get_random_screen_coords(NUM_RAYS), angle1);
+    print!("sampling {:?} rays for angles 0. and {:?}", NUM_RAYS, angle);
+    let rays1 = sample_and_rotate_rays_for_screen_coords(&get_random_screen_coords(NUM_RAYS), 0.);
     let rays2 =
-        sample_and_rotate_rays_for_screen_coords(&get_random_screen_coords(NUM_RAYS), angle2);
+        sample_and_rotate_rays_for_screen_coords(&get_random_screen_coords(NUM_RAYS), angle);
 
-    let backbuffer_yx: &mut [u32; 100 * 100] = &mut [0u32; 100 * 100];
-    let backbuffer_zx: &mut [u32; 100 * 100] = &mut [0u32; 100 * 100];
-    let backbuffer_yz: &mut [u32; 100 * 100] = &mut [0u32; 100 * 100];
-
-    for ray1 in rays1 {
-        // println!("{:?} vs {:?}", ray1, ray2);
-        // panic!("");
-        for ray2 in rays2.clone() {
-            let view = vec3_normalized(vec3_sub(AT, FROM));
-            let left = vec3_normalized(vec3_cross(view, UP));
-            let (t, p, a, b) =
-                ray_intersection(FROM, vec3_add(ray1, FROM), left, vec3_add(ray2, left));
-            if p > 0. && p <= 2. && t > 0. && t <= 2. {
-                println!("{:?} vs {:?} -> {:?}", ray1, ray2, [t, p]);
-                for [world_x, world_y, world_z] in [a, b] {
-                    let y = f32::floor(50. * (world_y + 1.)) as usize;
-                    let x = f32::floor(50. * (world_x + 1.)) as usize;
-                    let z = f32::floor(25. * (world_z + 1.)) as usize;
-
-                    backbuffer_yx[y * 100 + x] = prediction_array_as_u32(&[1., 1., 1., 1.]);
-                    backbuffer_zx[z * 100 + x] = prediction_array_as_u32(&[1., 1., 1., 1.]);
-                    backbuffer_yz[y * 100 + z] = prediction_array_as_u32(&[1., 1., 1., 1.]);
-                }
-            }
-        }
-    }
-
-    writer.add_image(
-        "intersections_yx",
-        &backbuffer_yx
-            .iter()
-            .map(rgba_to_u8_array)
-            .flatten()
-            .collect::<Vec<u8>>(),
-        &vec![3, 100, 100][..],
-        iter,
-    );
-    writer.add_image(
-        "intersections_zx",
-        &backbuffer_zx
-            .iter()
-            .map(rgba_to_u8_array)
-            .flatten()
-            .collect::<Vec<u8>>(),
-        &vec![3, 100, 100][..],
-        iter,
-    );
-
-    writer.add_image(
-        "intersections_yz",
-        &backbuffer_yz
-            .iter()
-            .map(rgba_to_u8_array)
-            .flatten()
-            .collect::<Vec<u8>>(),
-        &vec![3, 100, 100][..],
-        iter,
-    );
+    let intersections = get_view_rays_intersections(rays1, rays2, angle);
+    println!("-> {:?} intersections", intersections.len());
+    log_rays_intersections(writer, intersections, iter);
 }
 
 fn get_random_screen_coords(num_rays: usize) -> Vec<[usize; 2]> {
