@@ -1,4 +1,6 @@
-use crate::model::NUM_POINTS;
+use std::collections::HashMap;
+
+use crate::model::{NUM_POINTS, NUM_RAYS};
 use rand::random;
 use vecmath::*;
 const HITHER: f32 = 0.05;
@@ -13,7 +15,7 @@ pub const T_FAR: f32 = 2.;
 pub const WIDTH: usize = 128;
 pub const HEIGHT: usize = 128;
 
-const TOL: f32 = 1e-5;
+pub const TOL: f32 = 1e-4;
 
 pub fn rotate(vec: [f32; 3], angle: f32) -> [f32; 3] {
     let c = f32::cos(angle);
@@ -128,8 +130,6 @@ pub fn ray_intersection(
     let b_a = vec3_sub(b, a);
     let c_a = vec3_sub(c, a);
 
-    // let A_ = mat3_inv(mat3_transposed([b_a, v_c, [1., 1., 1.]]));
-
     // "Compatibility condition {:?} = 0?",
     if mat3_det([v_c, b_a, c_a]).abs() > TOL {
         return (-1., -1., a, b);
@@ -138,24 +138,15 @@ pub fn ray_intersection(
     let b_axv_c = vec3_dot([1., 1., 1.], vec3_cross(b_a, vec3_scale(v_c, -1.)));
     let t = vec3_dot([1., 1., 1.], vec3_cross(c_a, vec3_scale(v_c, -1.))) / b_axv_c;
     let p = vec3_dot([1., 1., 1.], vec3_cross(b_a, c_a)) / b_axv_c;
-    // let s =
 
-    // let [t, p] = [
-    //     c_a[0] * A_[0][0] + c_a[1] * A_[1][0] + c_a[2] * A_[2][0],
-    //     c_a[0] * (-A_[0][1]) + c_a[1] * (-A_[1][1]) + c_a[2] * (-A_[2][1]),
-    // ];
-    // vecmath::(vecmath::mat3x2_inv(mat2x3_transposed([b_a, v_c])), c_a);
-
-    // if p > 0. && p < 9000. && t > 0. && t < 1. {
     return (
         t,
         p,
         vec3_add(a, vec3_scale(b_a, t)),
         vec3_add(c, vec3_scale(v_c, p)),
     );
-    // }
-    // return (-1., -1.);
 }
+
 #[test]
 fn matmul() {
     println!(
@@ -242,15 +233,33 @@ pub fn trace_ray_intersections(x: f32, y: f32) -> bool {
         || trace_ray_intersection(x, y, [0.5, 0.5, 1.], [0.5, 0.51, 0.])
 }
 
+pub fn dist(vec1: [f32; 3], vec2: [f32; 3]) -> f32 {
+    f32::sqrt(vec3_square_len(vec3_sub(vec1, vec2)))
+}
+
 pub fn get_view_rays_intersections(
     rays1: Vec<[f32; 3]>,
     rays2: Vec<[f32; 3]>,
     angle: f32,
-) -> Vec<[f32; 3]> {
-    let mut intersections: Vec<[f32; 3]> = Vec::new();
+) -> (Vec<Vec<[f32; 3]>>, Vec<Vec<[f32; 3]>>, Vec<bool>, Vec<bool>) {
+    // let mut intersections: Vec<[f32; 3]> = Vec::new();
+    let mut rays1_keep: Vec<bool> = Vec::new();
+    let mut rays2_keep: [bool; NUM_RAYS] = [false; NUM_RAYS];
+    let mut rays1_intersections: Vec<Vec<[f32; 3]>> = Vec::new();
+    let mut rays2_intersections: Vec<Vec<[f32; 3]>> = Vec::new();
+    for _ in 0..NUM_RAYS {
+        rays2_intersections.push(Vec::new());
+    }
+
+    // let mut intersection_rays: HashMap<[f32; 3], ([f32; 3], [f32; 3])> = HashMap::new();
+    // let mut intersection_rays1: Vec<[f32; 3]> = Vec::new();
+    // let mut intersection_rays2: Vec<[f32; 3]> = Vec::new();
 
     for ray1 in rays1 {
-        for ray2 in rays2.clone() {
+        let mut keep_ray1 = false;
+        let mut ray1_intersections: Vec<[f32; 3]> = Vec::new();
+        for j in 0..rays2.len() {
+            let ray2 = *rays2.get(j).unwrap();
             let from_rot = rotate(FROM, angle);
 
             let (t, p, a, b) = ray_intersection(
@@ -260,12 +269,32 @@ pub fn get_view_rays_intersections(
                 vec3_add(ray2, from_rot),
             );
             if p > 0. && p <= T_FAR && t > 0. && t <= T_FAR {
-                intersections.push(a);
-                intersections.push(b);
+                // println!(" {:?}", dist(a, b));
+                if dist(a, b) < TOL {
+                    // intersections.push(a);
+                    keep_ray1 = true | keep_ray1;
+                    ray1_intersections.push(a);
+                    // intersection_rays1.push(ray1);
+                    // intersection_rays2.push(ray2);
+                    if let Some(keep_ray2) = rays2_keep.get_mut(j) {
+                        *keep_ray2 = *keep_ray2 | true;
+                    }
+                    if let Some(ray2_intersection) = rays2_intersections.get_mut(j) {
+                        ray2_intersection.push(b);
+                    }
+                }
+                // intersections.push(b);
             }
         }
+        rays1_keep.push(keep_ray1);
+        rays1_intersections.push(ray1_intersections);
     }
-    return intersections;
+    return (
+        rays1_intersections,
+        rays2_intersections,
+        rays1_keep,
+        rays2_keep.into(),
+    );
 }
 
 #[test]

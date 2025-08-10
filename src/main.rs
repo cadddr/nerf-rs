@@ -154,6 +154,7 @@ fn display_ray_intersections() {
     run_window(update_window_buffer, WIDTH, HEIGHT);
 }
 
+// check points sampled from different view rays get same density estimates
 fn measure_view_invariance(
     writer: &mut SummaryWriter,
     model: &DensityNet,
@@ -171,13 +172,132 @@ fn measure_view_invariance(
     //     iter,
     // );
     print!("sampling {:?} rays for angles 0. and {:?}", NUM_RAYS, angle);
-    let rays1 = sample_and_rotate_rays_for_screen_coords(&get_random_screen_coords(NUM_RAYS), 0.);
-    let rays2 =
-        sample_and_rotate_rays_for_screen_coords(&get_random_screen_coords(NUM_RAYS), angle);
+    let mut indices1 = get_random_screen_coords(NUM_RAYS);
+    let mut indices2 = get_random_screen_coords(NUM_RAYS);
+    let rays1 = sample_and_rotate_rays_for_screen_coords(&indices1, 0.);
+    let rays2 = sample_and_rotate_rays_for_screen_coords(&indices2, angle);
 
-    let intersections = get_view_rays_intersections(rays1, rays2, angle);
-    println!("-> {:?} intersections", intersections.len());
-    log_rays_intersections(writer, intersections, iter);
+    let (rays1_intersections, rays2_intersections, rays1_keep, rays2_keep) =
+        get_view_rays_intersections(rays1, rays2, angle);
+
+    println!(
+        " -> {:?} and {:?} intersections",
+        rays1_intersections.len(),
+        rays2_intersections.len()
+    );
+
+    if rays1_intersections.len() > 0 && rays2_intersections.len() > 0 {
+        //only check query points on rays having intersections
+        // let mut rays1_keep_iter = rays1_keep.iter();
+        // indices1.retain(|_| *rays1_keep_iter.next().unwrap());
+        // let mut rays2_keep_iter = rays2_keep.iter();
+        // indices2.retain(|_| *rays2_keep_iter.next().unwrap());
+        // println!(
+        //     "indices retained {:?} and {:?}",
+        //     indices1.len(),
+        //     indices2.len()
+        // );
+
+        let (query_points1, _) =
+            sample_and_rotate_ray_points_for_screen_coords(&indices1, NUM_POINTS, 0.);
+        let (query_points2, _) =
+            sample_and_rotate_ray_points_for_screen_coords(&indices2, NUM_POINTS, angle);
+
+        let densities1 =
+            model.predict::<BATCH_SIZE, NUM_RAYS, NUM_POINTS>(tensor_from_3d(&query_points1));
+
+        let densities2 =
+            model.predict::<BATCH_SIZE, NUM_RAYS, NUM_POINTS>(tensor_from_3d(&query_points2));
+
+        let query_points_densities_intersected1: Vec<([f32; 3], f32)> = query_points1
+            .iter()
+            .zip(tensor_to_array_vec(&densities1))
+            .zip(rays1_intersections)
+            .map(|((points, densities), intersections)| {
+                points
+                    .clone()
+                    .into_iter()
+                    .zip(densities)
+                    .filter(move |(p, d)| intersections.iter().any(|i| dist(*p, *i) < TOL))
+            })
+            .flatten()
+            .collect();
+
+        let query_points_densities_intersected2: Vec<([f32; 3], f32)> = query_points2
+            .iter()
+            .zip(tensor_to_array_vec(&densities2))
+            .zip(rays2_intersections)
+            .map(|((points, densities), intersections)| {
+                points
+                    .clone()
+                    .into_iter()
+                    .zip(densities)
+                    .filter(move |(p, d)| intersections.iter().any(|i| dist(*p, *i) < TOL))
+            })
+            .flatten()
+            .collect();
+
+        let mut consistency_error = 0.;
+        let mut query_point_pairs: Vec<([f32; 3], [f32; 3])> = Vec::new();
+        for (qp1, d1) in query_points_densities_intersected1.iter() {
+            for (qp2, d2) in query_points_densities_intersected2.iter() {
+                if dist(*qp1, *qp2) < TOL {
+                    query_point_pairs.push((*qp1, *qp2));
+                    consistency_error += (d1 - d2).abs();
+                }
+            }
+        }
+        consistency_error /= query_point_pairs.len() as f32;
+        println!(
+            "intersected points {:?} and {:?} -> {:?} ({:?} err)",
+            query_points_densities_intersected1.len(),
+            query_points_densities_intersected2.len(),
+            query_point_pairs.len(),
+            consistency_error
+        );
+        writer.add_scalar("consistency_error", consistency_error, iter);
+
+        // let query_point_intersected1: Vec<Vec<[f32; 3]>> = intersections
+        //     .iter()
+        //     .map(|i| {
+        //         query_points1
+        //             .clone()
+        //             .into_iter()
+        //             .flatten()
+        //             .filter(|p| dist(*p, *i) < TOL)
+        //             .collect()
+        //     })
+        //     // .flatten()
+        //     .collect();
+
+        // let query_point_intersected2: Vec<Vec<[f32; 3]>> = intersections
+        //     .iter()
+        //     .map(|i| {
+        //         query_points2
+        //             .clone()
+        //             .into_iter()
+        //             .flatten()
+        //             .filter(|p| dist(*p, *i) < TOL)
+        //             .collect()
+        //     })
+        //     // .flatten()
+        //     .collect();
+
+        // for (qp1, qp2) in query_point_intersected1
+        //     .iter()
+        //     .zip(query_point_intersected2)
+        // {
+        //     if (qp1.len() > 0) && (qp2.len() > 0) {
+        //         println!("intersected query points {:?} {:?}", qp1, qp2);
+        //     }
+        // }
+
+        log_rays_intersections(
+            writer,
+            query_point_pairs.into_iter().map(|(a, b)| a).collect(),
+            iter,
+        );
+    }
 }
 
 fn get_random_screen_coords(num_rays: usize) -> Vec<[usize; 2]> {
