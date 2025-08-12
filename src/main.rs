@@ -64,7 +64,7 @@ fn main() {
     let mut backbuffer = [0; WIDTH * HEIGHT];
     let update_window_buffer = |buffer: &mut Vec<u32>| {
         // let (indices, query_points, distances, gold) = get_train_batch(&imgs, iter);
-        let (query_points, gold) = get_density_batch(&imgs, iter);
+        let (indices, query_points, gold) = get_density_batch(&imgs, iter);
 
         // let (predictions, densities) = model.predict(
         //     tensor_from_3d(&query_points),
@@ -74,20 +74,21 @@ fn main() {
             model.predict::<BATCH_SIZE, NUM_RAYS, NUM_POINTS>(tensor_from_3d(&query_points));
 
         if iter % args.logging_steps == 0 {
-            // log_screen_coords(&mut writer, &indices, iter);
-            // log_query_points(&mut writer, &query_points, &distances, iter);
+            log_screen_coords(&mut writer, &indices, iter);
+            log_query_points(&mut writer, &query_points, iter);
+            // log_query_distances(&mut writer, &distances, iter);
             log_density_maps(
                 &mut writer,
                 &query_points,
                 tensor_to_array_vec(&densities),
                 iter,
             );
-            log_densities(
-                &mut writer,
-                &query_points,
-                tensor_to_array_vec(&densities),
-                iter,
-            );
+            // log_densities(
+            //     &mut writer,
+            //     &query_points,
+            //     tensor_to_array_vec(&densities),
+            //     iter,
+            // );
         }
 
         if args.do_train {
@@ -161,32 +162,52 @@ fn measure_view_invariance(
     iter: usize,
     angle: f32,
 ) {
-    // writer.add_scalar(
-    //     "density0",
-    //     model
-    //         .predict::<1, 1, 1>(tensor_from_3d(&vec![vec![[0., 0., 0.]]]))
-    //         .get(0)
-    //         .get(0)
-    //         .try_into()
-    //         .unwrap(),
-    //     iter,
-    // );
+    writer.add_scalar(
+        "density0",
+        model
+            .predict::<1, 1, 1>(tensor_from_3d(&vec![vec![[0., 0., 0.]]]))
+            .get(0)
+            .get(0)
+            .try_into()
+            .unwrap(),
+        iter,
+    );
     print!("sampling {:?} rays for angles 0. and {:?}", NUM_RAYS, angle);
-    let mut indices1 = get_random_screen_coords(NUM_RAYS);
-    let mut indices2 = get_random_screen_coords(NUM_RAYS);
-    let rays1 = sample_and_rotate_rays_for_screen_coords(&indices1, 0.);
-    let rays2 = sample_and_rotate_rays_for_screen_coords(&indices2, angle);
+
+    let mut indices: Vec<[usize; 2]> = Vec::new();
+
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            indices.push([y as usize, x as usize])
+        }
+    }
+
+    // let mut indices1 = get_random_screen_coords(NUM_RAYS);
+    // let mut indices2 = get_random_screen_coords(NUM_RAYS);
+    let rays1 = sample_and_rotate_rays_for_screen_coords(&indices, 0.);
+    let rays2 = sample_and_rotate_rays_for_screen_coords(&indices, angle);
 
     let (rays1_intersections, rays2_intersections, rays1_keep, rays2_keep) =
         get_view_rays_intersections(rays1, rays2, angle);
 
+    let len_intersections1 = rays1_intersections
+        .iter()
+        .flatten()
+        .collect::<Vec<&[f32; 3]>>()
+        .len();
+
+    let len_intersections2 = rays2_intersections
+        .iter()
+        .flatten()
+        .collect::<Vec<&[f32; 3]>>()
+        .len();
+
     println!(
         " -> {:?} and {:?} intersections",
-        rays1_intersections.len(),
-        rays2_intersections.len()
+        len_intersections1, len_intersections2,
     );
 
-    if rays1_intersections.len() > 0 && rays2_intersections.len() > 0 {
+    if len_intersections1 > 0 && len_intersections2 > 0 {
         //only check query points on rays having intersections
         // let mut rays1_keep_iter = rays1_keep.iter();
         // indices1.retain(|_| *rays1_keep_iter.next().unwrap());
@@ -199,9 +220,9 @@ fn measure_view_invariance(
         // );
 
         let (query_points1, _) =
-            sample_and_rotate_ray_points_for_screen_coords(&indices1, NUM_POINTS, 0.);
+            sample_and_rotate_ray_points_for_screen_coords(&indices, NUM_POINTS, 0., false);
         let (query_points2, _) =
-            sample_and_rotate_ray_points_for_screen_coords(&indices2, NUM_POINTS, angle);
+            sample_and_rotate_ray_points_for_screen_coords(&indices, NUM_POINTS, angle, false);
 
         let densities1 =
             model.predict::<BATCH_SIZE, NUM_RAYS, NUM_POINTS>(tensor_from_3d(&query_points1));
@@ -257,41 +278,6 @@ fn measure_view_invariance(
         );
         writer.add_scalar("consistency_error", consistency_error, iter);
 
-        // let query_point_intersected1: Vec<Vec<[f32; 3]>> = intersections
-        //     .iter()
-        //     .map(|i| {
-        //         query_points1
-        //             .clone()
-        //             .into_iter()
-        //             .flatten()
-        //             .filter(|p| dist(*p, *i) < TOL)
-        //             .collect()
-        //     })
-        //     // .flatten()
-        //     .collect();
-
-        // let query_point_intersected2: Vec<Vec<[f32; 3]>> = intersections
-        //     .iter()
-        //     .map(|i| {
-        //         query_points2
-        //             .clone()
-        //             .into_iter()
-        //             .flatten()
-        //             .filter(|p| dist(*p, *i) < TOL)
-        //             .collect()
-        //     })
-        //     // .flatten()
-        //     .collect();
-
-        // for (qp1, qp2) in query_point_intersected1
-        //     .iter()
-        //     .zip(query_point_intersected2)
-        // {
-        //     if (qp1.len() > 0) && (qp2.len() > 0) {
-        //         println!("intersected query points {:?} {:?}", qp1, qp2);
-        //     }
-        // }
-
         log_rays_intersections(
             writer,
             query_point_pairs.into_iter().map(|(a, b)| a).collect(),
@@ -328,12 +314,16 @@ fn get_random_screen_coords(num_rays: usize) -> Vec<[usize; 2]> {
 fn get_density_batch(
     imgs: &Vec<Vec<[f32; 4]>>,
     iter: usize,
-) -> (Vec<Vec<[f32; INDIM as usize]>>, Vec<Vec<[f32; 1]>>) {
+) -> (
+    Vec<[usize; 2]>,
+    Vec<Vec<[f32; INDIM as usize]>>,
+    Vec<Vec<[f32; 1]>>,
+) {
     let n = iter % imgs.len(); // if we're shuffling views - angles should change accordingly
     let angle = (n as f32 / imgs.len() as f32) * 2. * std::f32::consts::PI;
     let indices = get_random_screen_coords(NUM_RAYS);
     let (query_points, _) =
-        sample_and_rotate_ray_points_for_screen_coords(&indices, NUM_POINTS, angle); // need mix rays from multiple views
+        sample_and_rotate_ray_points_for_screen_coords(&indices, NUM_POINTS, angle, true); // need mix rays from multiple views
     let mut gold: Vec<Vec<[f32; 1]>> = Vec::new();
 
     for (ray_points) in &query_points {
@@ -346,7 +336,7 @@ fn get_density_batch(
         gold.push(ray_gold);
     }
 
-    return (query_points, gold);
+    return (indices, query_points, gold);
 }
 
 // gets query points for random screen coords and views for training
@@ -372,7 +362,7 @@ fn get_train_batch(
     //            .collect();
 
     let (query_points, distances) =
-        sample_and_rotate_ray_points_for_screen_coords(&indices, NUM_POINTS, angle); // need mix rays from multiple views
+        sample_and_rotate_ray_points_for_screen_coords(&indices, NUM_POINTS, angle, true); // need mix rays from multiple views
 
     let gold: Vec<[f32; 4]> = indices
         .iter()
@@ -410,7 +400,7 @@ fn draw_valid_predictions(backbuffer: &mut [u32; WIDTH * HEIGHT], iter: usize, m
             .unwrap();
 
         let (query_points, distances) =
-            sample_and_rotate_ray_points_for_screen_coords(&indices_batch, NUM_POINTS, angle);
+            sample_and_rotate_ray_points_for_screen_coords(&indices_batch, NUM_POINTS, angle, true);
 
         let (predictions, _) = model.predict(
             tensor_from_3d(&query_points),

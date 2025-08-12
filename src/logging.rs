@@ -23,16 +23,29 @@ pub fn log_screen_coords(writer: &mut SummaryWriter, indices: &Vec<[usize; 2]>, 
     log_as_hist(writer, "screen_x", bucket_counts_sx, iter);
 }
 
+pub fn log_query_distances(
+    writer: &mut SummaryWriter,
+    distances: &Vec<[f32; NUM_POINTS]>,
+    iter: usize,
+) {
+    let mut bucket_counts_t: [f64; 2000 as usize] = [0.; 2000 as usize];
+    for ray_distances in distances {
+        for t in ray_distances {
+            bucket_counts_t[f32::floor(500. * t) as usize] += 1.;
+        }
+    }
+
+    log_as_hist(writer, "t", bucket_counts_t, iter);
+}
+
 pub fn log_query_points(
     writer: &mut SummaryWriter,
     query_points: &Vec<Vec<[f32; 3]>>,
-    distances: &Vec<[f32; NUM_POINTS]>,
     iter: usize,
 ) {
     let mut bucket_counts_y: [f64; 2000 as usize] = [0.; 2000 as usize];
     let mut bucket_counts_x: [f64; 2000 as usize] = [0.; 2000 as usize];
     let mut bucket_counts_z: [f64; 2000 as usize] = [0.; 2000 as usize];
-    let mut bucket_counts_t: [f64; 2000 as usize] = [0.; 2000 as usize];
 
     for ray_points in query_points {
         for [world_x, world_y, world_z] in ray_points {
@@ -42,16 +55,9 @@ pub fn log_query_points(
         }
     }
 
-    for ray_distances in distances {
-        for t in ray_distances {
-            bucket_counts_t[f32::floor(500. * t) as usize] += 1.;
-        }
-    }
-
     log_as_hist(writer, "world_y", bucket_counts_y, iter);
     log_as_hist(writer, "world_x", bucket_counts_x, iter);
     log_as_hist(writer, "world_z", bucket_counts_z, iter);
-    log_as_hist(writer, "t", bucket_counts_t, iter);
 }
 
 pub fn log_densities(

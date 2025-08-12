@@ -52,12 +52,19 @@ fn sample_points_along_ray_and_rotate(
     to: [f32; 3],
     view_angle: f32,
     num_samples: usize,
+    randomize: bool,
 ) -> (Vec<[f32; 3]>, [f32; NUM_POINTS]) {
     let mut points: Vec<[f32; 3]> = Vec::new();
     let mut locations: Vec<f32> = Vec::new();
 
-    for _ in 0..num_samples {
-        let t = random::<f32>() * (T_FAR - HITHER) + HITHER;
+    for i in 0..num_samples {
+        let mut t: f32;
+        if randomize {
+            t = random::<f32>();
+        } else {
+            t = i as f32 / num_samples as f32;
+        }
+        t *= (T_FAR - HITHER) + HITHER; //
         let point = vec3_add(from, vec3_scale(to, t)); // add back origin of view vector to get point's world coordinates
         points.push(point);
         locations.push(t);
@@ -102,6 +109,7 @@ pub fn sample_and_rotate_ray_points_for_screen_coords(
     indices: &Vec<[usize; 2]>,
     num_points: usize,
     angle: f32,
+    randomize: bool,
 ) -> (Vec<Vec<[f32; 3]>>, Vec<[f32; NUM_POINTS]>) {
     let rays: Vec<[f32; 3]> = indices
         .iter()
@@ -110,7 +118,7 @@ pub fn sample_and_rotate_ray_points_for_screen_coords(
 
     let (points, locations) = rays
         .iter()
-        .map(|to| sample_points_along_ray_and_rotate(FROM, *to, angle, num_points))
+        .map(|to| sample_points_along_ray_and_rotate(FROM, *to, angle, num_points, randomize))
         .collect();
 
     return (points, locations);

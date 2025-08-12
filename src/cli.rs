@@ -7,7 +7,7 @@ pub struct Cli {
     #[arg(long, default_value_t = false)]
     pub debug: bool,
 
-    #[arg(long, default_value_t = false)]
+    #[arg(long, default_value_t = true)]
     pub do_train: bool,
 
     #[arg(long, default_value_t = true)]
@@ -43,13 +43,13 @@ pub struct Cli {
     // checkpoint-1753303468-8484.ot")
     // checkpoint-1718944888-11413.ot
     // checkpoint-1718941373-6161.ot
-    #[arg(long, default_value = "")]
+    #[arg(long, default_value = "checkpoint-1753829839-5001.ot")]
     pub load_path: String,
 
     #[arg(long, default_value_t = 50000)]
     pub num_iter: usize,
 
-    #[arg(long, default_value_t = 1)]
+    #[arg(long, default_value_t = 101)]
     pub eval_steps: usize,
 
     #[arg(long, default_value_t = 101)]
