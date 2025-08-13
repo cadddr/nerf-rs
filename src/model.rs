@@ -5,12 +5,12 @@ use tch::nn::ModuleT;
 use tch::{nn, nn::Optimizer, nn::OptimizerConfig, Device, Kind, Tensor};
 
 pub const NUM_RAYS: usize = 16384;
-pub const NUM_POINTS: usize = 64;
+pub const NUM_POINTS: usize = 16;
 pub const BATCH_SIZE: i64 = NUM_RAYS as i64 * NUM_POINTS as i64;
 
 pub const INDIM: i64 = 3;
 const HIDDEN_NODES: i64 = 100;
-pub const LABELS: i64 = 1;
+pub const LABELS: i64 = 4;
 
 pub fn hparams() -> HashMap<String, f32> {
     let mut map: HashMap<String, f32> = HashMap::new();
@@ -318,18 +318,10 @@ impl Trainer {
         // const LABELS_BATCHED: usize = LABELS * NUM_RAYS;
         // let gold_flat = array_vec_to_1d_array::<LABELS, LABELS_BATCHED>(&gold);
         // let gold_tensor = Tensor::of_slice(&gold_flat).view((NUM_RAYS as i64, LABELS as i64));
-        assert_eq!(
-            predictions.size(),
-            vec![NUM_RAYS as i64, NUM_POINTS as i64, LABELS]
-        );
-        assert_eq!(
-            gold.size(),
-            vec![NUM_RAYS as i64 * NUM_POINTS as i64 * LABELS]
-        );
+        assert_eq!(predictions.size(), vec![NUM_RAYS as i64, LABELS]);
+        assert_eq!(gold.size(), vec![NUM_RAYS as i64 * LABELS]);
 
-        gold = gold
-            .to(Device::Mps)
-            .view((NUM_RAYS as i64, NUM_POINTS as i64, LABELS));
+        gold = gold.to(Device::Mps).view((NUM_RAYS as i64, LABELS));
         let loss = mse_loss(&predictions, &gold);
 
         // self.backward_scale_grad_step(&loss);
