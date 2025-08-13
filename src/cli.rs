@@ -25,7 +25,7 @@ pub struct Cli {
     #[arg(long, default_value_t = 360)]
     pub view_end_h: usize,
 
-    #[arg(long, default_value_t = 180)]
+    #[arg(long, default_value_t = 10)]
     pub view_step_h: usize,
 
     #[arg(long, default_value = "logs")]

@@ -132,7 +132,7 @@ impl nn::ModuleT for RadianceNet {
 
 pub struct NeRF {
     pub vs: nn::VarStore,
-    density: DensityNet,
+    pub density: DensityNet,
     radiance: RadianceNet,
 }
 

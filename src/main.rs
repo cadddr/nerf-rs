@@ -18,7 +18,7 @@ mod logging;
 use logging::*;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
-use std::time::SystemTime;
+use std::{f32, time::SystemTime};
 use tensorboard_rs::summary_writer::SummaryWriter;
 use textplots::{Chart, Plot, Shape};
 
@@ -63,10 +63,10 @@ fn main() {
     let mut batch_losses: Vec<f32> = Vec::new();
     let mut backbuffer = [0; WIDTH * HEIGHT];
     let update_window_buffer = |buffer: &mut Vec<u32>| {
-        let n = iter % imgs.len(); // if we're shuffling views - angles should change accordingly
-        let angle = (n as f32 / imgs.len() as f32) * 2. * std::f32::consts::PI;
-        let (indices, query_points, distances, gold) = get_sphere_train_batch(angle);
-        // let (indices, query_points, gold) = get_density_batch(&imgs, iter);
+        // let n = iter % imgs.len(); // if we're shuffling views - angles should change accordingly
+        // let angle = (n as f32 / imgs.len() as f32) * 2. * std::f32::consts::PI;
+        let (indices, query_points, distances, gold) = get_multiview_batch(&imgs); //get_sphere_train_batch(angle);
+                                                                                   // let (indices, query_points, gold) = get_density_batch(&imgs, iter);
 
         let (predictions, densities) = model.predict(
             tensor_from_3d(&query_points),
@@ -78,19 +78,13 @@ fn main() {
         if iter % args.logging_steps == 0 {
             log_screen_coords(&mut writer, &indices, iter);
             log_query_points(&mut writer, &query_points, iter);
-            // log_query_distances(&mut writer, &distances, iter);
+            log_query_distances(&mut writer, &distances, iter);
             log_density_maps(
                 &mut writer,
                 &query_points,
                 tensor_to_array_vec(&densities),
                 iter,
             );
-            // log_densities(
-            //     &mut writer,
-            //     &query_points,
-            //     tensor_to_array_vec(&densities),
-            //     iter,
-            // );
         }
 
         if args.do_train {
@@ -128,7 +122,9 @@ fn main() {
             }
             // let n = iter % imgs.len(); // if we're shuffling views - angles should change accordingly
             // let angle = (n as f32 / imgs.len() as f32) * 2. * std::f32::consts::PI;
-            // measure_view_invariance(&mut writer, &model, iter, angle);
+            // if angle > 0. {
+            //     measure_view_invariance(&mut writer, &model.density, iter, angle);
+            // }
         }
         if args.debug {
             backbuffer = [0; WIDTH * HEIGHT];
@@ -137,14 +133,6 @@ fn main() {
                 &indices,
                 tensor_from_2d::<{ LABELS as usize }>(&gold).view((NUM_RAYS as i64, LABELS)),
             );
-            // for [y, x] in indices {
-            //     let gold_ = gold[y * WIDTH + x];
-            //     backbuffer[y * WIDTH + x] = from_u8_rgb(
-            //         (gold_[0] * 255.) as u8,
-            //         (gold_[1] * 255.) as u8,
-            //         (gold_[2] * 255.) as u8,
-            //     );
-            // }
         }
 
         draw_to_screen(buffer, &backbuffer); // this is needed on each re-draw otherwise screen gets blank
@@ -358,7 +346,56 @@ fn get_sphere_density_batch(
     return (indices, query_points, gold);
 }
 
+fn get_multiview_batch(
+    imgs: &Vec<Vec<[f32; 4]>>,
+) -> (
+    Vec<[usize; 2]>,
+    Vec<Vec<[f32; INDIM as usize]>>,
+    Vec<[f32; NUM_POINTS]>,
+    Vec<[f32; 4]>,
+) {
+    let indices = get_random_screen_coords(NUM_RAYS);
+    let bsz = NUM_RAYS / imgs.len();
+
+    let mut query_points: Vec<Vec<[f32; INDIM as usize]>> = Vec::new();
+    let mut distances: Vec<[f32; NUM_POINTS]> = Vec::new();
+    let mut gold: Vec<[f32; 4]> = Vec::new();
+
+    let image_indices: Vec<i64> = Vec::try_from(Tensor::randint(
+        imgs.len() as i64,
+        &[imgs.len() as i64],
+        kind::FLOAT_CPU,
+    ))
+    .unwrap();
+
+    for (i, n) in image_indices.iter().enumerate() {
+        // println!("view {:?} of {:?}", n, image_indices.len());
+        let angle = (*n as f32 / imgs.len() as f32) * 2. * std::f32::consts::PI; // all views encompass 360 degrees
+        let indices_batch: Vec<[usize; 2]> = indices[i as usize * bsz..(i as usize + 1) * bsz]
+            .try_into()
+            .unwrap();
+
+        let (query_points_batch, distances_batch) =
+            sample_and_rotate_ray_points_for_screen_coords(&indices_batch, NUM_POINTS, angle, true);
+
+        let gold_batch: Vec<[f32; 4]> = indices_batch
+            .iter()
+            .map(|[y, x]| imgs[*n as usize][y * WIDTH + x])
+            .collect();
+        //
+        // let (_, query_points_batch, distances_batch, gold_batch) =
+        //     get_sphere_train_batch(indices_batch, angle);
+
+        query_points.extend(query_points_batch);
+        distances.extend(distances_batch);
+        gold.extend(gold_batch);
+    }
+
+    return (indices, query_points, distances, gold);
+}
+
 fn get_sphere_train_batch(
+    indices: Vec<[usize; 2]>,
     angle: f32,
 ) -> (
     Vec<[usize; 2]>,
@@ -366,23 +403,38 @@ fn get_sphere_train_batch(
     Vec<[f32; NUM_POINTS]>,
     Vec<[f32; 4]>,
 ) {
-    // let mut indices: Vec<[usize; 2]> = Vec::new();
-    let indices = get_random_screen_coords(NUM_RAYS);
+    // let indices = get_random_screen_coords(NUM_RAYS);
     let mut gold: Vec<[f32; 4]> = Vec::new();
     for [y, x] in indices.clone() {
-        // for y in 0..HEIGHT {
-        //     for x in 0..WIDTH {
-        // indices.push([y as usize, x as usize]);
         let y_ = y as f32 / HEIGHT as f32;
         let x_ = x as f32 / WIDTH as f32;
 
         let distance_from_center = ((x_ - 0.5) * (x_ - 0.5) + (y_ - 0.5) * (y_ - 0.5)).sqrt();
-        if distance_from_center < 0.25 {
+        let distance_from_center_left =
+            ((x_ - 0.25) * (x_ - 0.25) + (y_ - 0.5) * (y_ - 0.5)).sqrt();
+        let distance_from_center_right =
+            ((x_ - 0.75) * (x_ - 0.75) + (y_ - 0.5) * (y_ - 0.5)).sqrt();
+
+        // if angle == 0. {
+        //     gold.push([1., 0., 0., 1.]);
+        // } else if f32::abs(angle - f32::consts::FRAC_PI_2) < TOL {
+        //     gold.push([0., 1., 0., 1.]);
+        // } else if (f32::abs(angle - 3. * f32::consts::FRAC_PI_2) < TOL) {
+        //     gold.push([0., 0., 1., 1.]);
+        // } else {
+        //     gold.push([1., 1., 1., 1.]);
+        // }
+        // continue;
+
+        if distance_from_center < 0.25
+            || (f32::abs(angle - f32::consts::FRAC_PI_2) < TOL
+                || f32::abs(angle - 3. * f32::consts::FRAC_PI_2) < TOL)
+                && (distance_from_center_left < 0.125 || distance_from_center_right < 0.125)
+        {
             gold.push([1., 1., 1., 1.]);
         } else {
             gold.push([0., 0., 0., 0.]);
         }
-        // }
     }
 
     let (query_points, distances) =
