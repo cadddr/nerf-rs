@@ -4,7 +4,7 @@ use clap::{CommandFactory, Parser};
 
 #[derive(Parser)]
 pub struct Cli {
-    #[arg(long, default_value_t = false)]
+    #[arg(long, default_value_t = true)]
     pub debug: bool,
 
     #[arg(long, default_value_t = true)]
@@ -25,7 +25,7 @@ pub struct Cli {
     #[arg(long, default_value_t = 360)]
     pub view_end_h: usize,
 
-    #[arg(long, default_value_t = 10)]
+    #[arg(long, default_value_t = 180)]
     pub view_step_h: usize,
 
     #[arg(long, default_value = "logs")]
@@ -55,7 +55,7 @@ pub struct Cli {
     #[arg(long, default_value_t = 101)]
     pub logging_steps: usize,
 
-    #[arg(long, default_value_t = 5001)]
+    #[arg(long, default_value_t = 1001)]
     pub save_steps: usize,
 
     #[arg(long, default_value_t = 1)]

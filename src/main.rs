@@ -65,7 +65,7 @@ fn main() {
     let update_window_buffer = |buffer: &mut Vec<u32>| {
         let n = iter % imgs.len(); // if we're shuffling views - angles should change accordingly
         let angle = (n as f32 / imgs.len() as f32) * 2. * std::f32::consts::PI;
-        let (indices, query_points, distances, gold) = get_train_batch(&imgs, iter);
+        let (indices, query_points, distances, gold) = get_sphere_train_batch(angle);
         // let (indices, query_points, gold) = get_density_batch(&imgs, iter);
 
         let (predictions, densities) = model.predict(
@@ -121,16 +121,33 @@ fn main() {
         if iter % args.eval_steps == 0 {
             backbuffer = [0; WIDTH * HEIGHT];
             if args.eval_on_train {
-                draw_predictions(&mut backbuffer, indices, predictions);
+                draw_predictions(&mut backbuffer, &indices, predictions);
                 log_prediction(&mut writer, &mut backbuffer, iter);
             } else {
-                // draw_valid_predictions(&mut backbuffer, iter, &model);
+                draw_valid_predictions(&mut backbuffer, iter, &model);
             }
             // let n = iter % imgs.len(); // if we're shuffling views - angles should change accordingly
             // let angle = (n as f32 / imgs.len() as f32) * 2. * std::f32::consts::PI;
             // measure_view_invariance(&mut writer, &model, iter, angle);
         }
-        draw_to_screen(buffer, &backbuffer, args.debug, gold, &iter); // this is needed on each re-draw otherwise screen gets blank
+        if args.debug {
+            backbuffer = [0; WIDTH * HEIGHT];
+            draw_predictions(
+                &mut backbuffer,
+                &indices,
+                tensor_from_2d::<{ LABELS as usize }>(&gold).view((NUM_RAYS as i64, LABELS)),
+            );
+            // for [y, x] in indices {
+            //     let gold_ = gold[y * WIDTH + x];
+            //     backbuffer[y * WIDTH + x] = from_u8_rgb(
+            //         (gold_[0] * 255.) as u8,
+            //         (gold_[1] * 255.) as u8,
+            //         (gold_[2] * 255.) as u8,
+            //     );
+            // }
+        }
+
+        draw_to_screen(buffer, &backbuffer); // this is needed on each re-draw otherwise screen gets blank
 
         iter = iter + 1;
         if iter > args.num_iter {
@@ -343,28 +360,29 @@ fn get_sphere_density_batch(
 
 fn get_sphere_train_batch(
     angle: f32,
-    iter: usize,
 ) -> (
     Vec<[usize; 2]>,
     Vec<Vec<[f32; INDIM as usize]>>,
     Vec<[f32; NUM_POINTS]>,
     Vec<[f32; 4]>,
 ) {
-    let mut indices: Vec<[usize; 2]> = Vec::new();
+    // let mut indices: Vec<[usize; 2]> = Vec::new();
+    let indices = get_random_screen_coords(NUM_RAYS);
     let mut gold: Vec<[f32; 4]> = Vec::new();
-    for y in 0..HEIGHT {
-        for x in 0..WIDTH {
-            indices.push([y as usize, x as usize]);
-            let y_ = y as f32 / HEIGHT as f32;
-            let x_ = x as f32 / WIDTH as f32;
+    for [y, x] in indices.clone() {
+        // for y in 0..HEIGHT {
+        //     for x in 0..WIDTH {
+        // indices.push([y as usize, x as usize]);
+        let y_ = y as f32 / HEIGHT as f32;
+        let x_ = x as f32 / WIDTH as f32;
 
-            let distance_from_center = ((x_ - 0.5) * (x_ - 0.5) + (y_ - 0.5) * (y_ - 0.5)).sqrt();
-            if distance_from_center < 0.5 {
-                gold.push([1., 1., 1., 1.]);
-            } else {
-                gold.push([0., 0., 0., 0.]);
-            }
+        let distance_from_center = ((x_ - 0.5) * (x_ - 0.5) + (y_ - 0.5) * (y_ - 0.5)).sqrt();
+        if distance_from_center < 0.25 {
+            gold.push([1., 1., 1., 1.]);
+        } else {
+            gold.push([0., 0., 0., 0.]);
         }
+        // }
     }
 
     let (query_points, distances) =
@@ -440,13 +458,13 @@ fn draw_valid_predictions(backbuffer: &mut [u32; WIDTH * HEIGHT], iter: usize, m
             tensor_from_3d(&query_points),
             tensor_from_2d::<NUM_POINTS>(&distances),
         );
-        draw_predictions(backbuffer, indices_batch, predictions);
+        draw_predictions(backbuffer, &indices_batch, predictions);
     }
 }
 
 fn draw_predictions(
     backbuffer: &mut [u32; WIDTH * HEIGHT],
-    indices: Vec<[usize; 2]>,
+    indices: &Vec<[usize; 2]>,
     predictions: Tensor,
 ) {
     // write batch predictions to backbuffer to display until next eval
