@@ -65,7 +65,7 @@ fn main() {
     let update_window_buffer = |buffer: &mut Vec<u32>| {
         // let n = iter % imgs.len(); // if we're shuffling views - angles should change accordingly
         // let angle = (n as f32 / imgs.len() as f32) * 2. * std::f32::consts::PI;
-        let (indices, query_points, distances, gold) = get_multiview_batch(&imgs); //get_sphere_train_batch(angle);
+        let (indices, query_points, distances, gold) = get_multiview_batch(&imgs); //get_train_batch(&imgs, iter); // // // //get_sphere_train_batch(angle);
                                                                                    // let (indices, query_points, gold) = get_density_batch(&imgs, iter);
 
         let (predictions, densities) = model.predict(

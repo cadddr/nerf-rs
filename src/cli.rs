@@ -16,16 +16,16 @@ pub struct Cli {
     #[arg(long, default_value_t = false)]
     pub log_densities_only: bool,
 
-    #[arg(long, default_value = "monkey-128-no-shading")]
+    #[arg(long, default_value = "spheres-128-no-shading")]
     pub img_dir: String,
 
     #[arg(long, default_value_t = 0)]
     pub view_start_h: usize,
 
-    #[arg(long, default_value_t = 360)]
+    #[arg(long, default_value_t = 180)]
     pub view_end_h: usize,
 
-    #[arg(long, default_value_t = 10)]
+    #[arg(long, default_value_t = 45)]
     pub view_step_h: usize,
 
     #[arg(long, default_value = "logs")]

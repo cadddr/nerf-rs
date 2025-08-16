@@ -1,9 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import sys
 
-DATA_PATH = '/System/Volumes/Data/Users/pavlik/Library/Application Support/Kinc Application/default.kha'
+DATA_PATH = '/System/Volumes/Data/Users/test/Library/Application Support/Kinc Application/default.kha'
 
-def make_image(data, outputname, size=(1, 1), dpi=128):
+def make_image(data, outputname, size=(1, 1), dpi=256):
     fig = plt.figure()
     fig.set_size_inches(size)
     ax = plt.Axes(fig, [0., 0., 1., 1.])
@@ -12,7 +13,10 @@ def make_image(data, outputname, size=(1, 1), dpi=128):
     plt.set_cmap('hot')
     ax.imshow(data, aspect='equal')
     plt.savefig(outputname, dpi=dpi)
-def read_image(infilename=DATA_PATH, width=128, height=128, outfilename='monkey-128-no-shading/image'):
+    plt.close()
+
+def read_image(infilename=DATA_PATH, width=256, height=256):
+    outfilename=sys.argv[1]#'monkey-128-no-shading/image'
     with open(infilename, 'rb') as file:
         data = file.read()
 

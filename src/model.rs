@@ -151,7 +151,7 @@ impl NeRF {
 
     pub fn predict(
         &self,
-        mut coords: Tensor, // viewing direction should only go through fc9
+        mut query_points: Tensor, // viewing direction should only go through fc9
         mut distances: Tensor,
     ) -> (Tensor, Tensor) {
         // const INDIM_BATCHED: usize = INDIM * BATCH_SIZE;
@@ -159,11 +159,11 @@ impl NeRF {
         // let coords_flat =
         //     array_vec_to_1d_array::<INDIM, INDIM_BATCHED>(&array_vec_vec_to_array_vec(coords));
         // let coords_tensor = Tensor::of_slice(&coords_flat).view((BATCH_SIZE as i64, INDIM));
-        assert_eq!(coords.size(), vec![BATCH_SIZE * INDIM]);
+        assert_eq!(query_points.size(), vec![BATCH_SIZE * INDIM]);
         assert_eq!(distances.size(), vec![BATCH_SIZE]);
 
-        coords = coords.to(Device::Mps).view((BATCH_SIZE, INDIM));
-        let densities_features = self.density.forward_t(&coords, true);
+        query_points = query_points.to(Device::Mps).view((BATCH_SIZE, INDIM));
+        let densities_features = self.density.forward_t(&query_points, true);
 
         let densities = densities_features
             .view((NUM_RAYS as i64, NUM_POINTS as i64, HIDDEN_NODES + 1))
@@ -189,19 +189,20 @@ impl NeRF {
         return (
             compositing(
                 &densities,
-                Tensor::stack(
-                    &[
-                        &densities,
-                        &densities,
-                        &densities,
-                        &Tensor::ones(
-                            &[NUM_RAYS as i64, NUM_POINTS as i64],
-                            (Kind::Float, densities.device()),
-                        ),
-                    ],
-                    0,
-                )
-                .permute(&[1, 2, 0]),
+                // Tensor::stack(
+                //     &[
+                //         &densities,
+                //         &densities,
+                //         &densities,
+                //         &Tensor::ones(
+                //             &[NUM_RAYS as i64, NUM_POINTS as i64],
+                //             (Kind::Float, densities.device()),
+                //         ),
+                //     ],
+                //     0,
+                // )
+                // .permute(&[1, 2, 0]),
+                colors,
                 distances.to(Device::Mps),
             ),
             densities,
