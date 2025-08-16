@@ -1,7 +1,11 @@
 extern crate minifb;
 use minifb::{Key, Window, WindowOptions};
+use tch::Tensor;
 
-use crate::ray_sampling::{HEIGHT, WIDTH};
+use crate::{
+    model::{tensor_from_2d, tensor_from_3d, tensor_to_array_vec, NeRF, NUM_POINTS, NUM_RAYS},
+    ray_sampling::{sample_and_rotate_ray_points_for_screen_coords, HEIGHT, WIDTH},
+};
 
 pub fn run_window<F: FnMut(&mut Vec<u32>)>(
     mut update_window_buffer: F,
@@ -46,3 +50,76 @@ pub fn prediction_array_as_u32(rgba: &[f32; 4]) -> u32 {
         (rgba[2] * 255.) as u8,
     );
 }
+
+// queries model for batches of all screen coordinates and draws to backbuffer
+pub fn draw_valid_predictions(backbuffer: &mut [u32; WIDTH * HEIGHT], iter: usize, model: &NeRF) {
+    let mut indices: Vec<[usize; 2]> = Vec::new();
+
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            indices.push([y as usize, x as usize])
+        }
+    }
+
+    let mut angle = (iter as f32 / 180.) * std::f32::consts::PI;
+    angle %= 2. * std::f32::consts::PI;
+
+    for batch_index in (0..indices.len() / NUM_RAYS) {
+        println!(
+            "evaluating batch {:?} iter {:?} angle {:?} - {:?} out of {:?}",
+            batch_index * NUM_RAYS,
+            iter,
+            angle,
+            (batch_index + 1) * NUM_RAYS,
+            indices.len()
+        );
+        let indices_batch: Vec<[usize; 2]> = indices
+            [batch_index * NUM_RAYS..(batch_index + 1) * NUM_RAYS]
+            .try_into()
+            .unwrap();
+
+        let (query_points, distances) =
+            sample_and_rotate_ray_points_for_screen_coords(&indices_batch, NUM_POINTS, angle, true);
+
+        let (predictions, _) = model.predict(
+            tensor_from_3d(&query_points),
+            tensor_from_2d::<NUM_POINTS>(&distances),
+        );
+        draw_predictions(backbuffer, &indices_batch, predictions);
+    }
+}
+
+pub fn draw_predictions(
+    backbuffer: &mut [u32; WIDTH * HEIGHT],
+    indices: &Vec<[usize; 2]>,
+    predictions: Tensor,
+) {
+    // write batch predictions to backbuffer to display until next eval
+    for ([y, x], prediction) in indices
+        .iter()
+        .zip(tensor_to_array_vec(&predictions).into_iter())
+        .into_iter()
+    {
+        backbuffer[y * WIDTH + x] =
+            prediction_array_as_u32(&[prediction[0], prediction[1], prediction[2], 1.]);
+    }
+}
+
+// // draws training predictions to backbuffer and logs
+// fn draw_train_predictions(
+//     backbuffer: &mut [u32; WIDTH * HEIGHT],
+//     indices: Vec<[usize; 2]>,
+//     predictions: Tensor,
+//     iter: usize,
+//     writer: &mut SummaryWriter,
+// ) {
+//     // write batch predictions to backbuffer to display until next eval
+//     for ([y, x], prediction) in indices
+//         .iter()
+//         .zip(get_predictions_as_array_vec(&predictions).into_iter())
+//         .into_iter()
+//     {
+//         backbuffer[y * WIDTH + x] =
+//             prediction_array_as_u32(&[prediction[0], prediction[1], prediction[2], 1.]);
+//     }
+// }

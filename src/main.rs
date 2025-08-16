@@ -4,20 +4,18 @@ use cli::Cli;
 mod image_loading;
 mod ray_sampling;
 use ray_sampling::*;
+mod dataset;
+use dataset::*;
 mod input_transforms;
 mod model;
 use model::{
     tensor_from_2d, tensor_from_3d, tensor_to_array_vec, NeRF, BATCH_SIZE, INDIM, LABELS,
     NUM_POINTS, NUM_RAYS,
 };
-use tch::{kind, nn, nn::Optimizer, nn::OptimizerConfig, Device, Kind, Tensor};
-use vecmath::*;
 mod display;
 use display::*;
 mod logging;
 use logging::*;
-use rand::seq::SliceRandom;
-use rand::thread_rng;
 use std::{f32, time::SystemTime};
 use tensorboard_rs::summary_writer::SummaryWriter;
 use textplots::{Chart, Plot, Shape};
@@ -67,7 +65,6 @@ fn main() {
         // let angle = (n as f32 / imgs.len() as f32) * 2. * std::f32::consts::PI;
         let (indices, query_points, distances, gold) = get_multiview_batch(&imgs); //get_train_batch(&imgs, iter); // // // //get_sphere_train_batch(angle);
                                                                                    // let (indices, query_points, gold) = get_density_batch(&imgs, iter);
-
         let (predictions, densities) = model.predict(
             tensor_from_3d(&query_points),
             tensor_from_2d::<NUM_POINTS>(&distances),
@@ -143,22 +140,6 @@ fn main() {
         }
     };
 
-    run_window(update_window_buffer, WIDTH, HEIGHT);
-}
-
-#[test]
-fn display_ray_intersections() {
-    let update_window_buffer = |buffer: &mut Vec<u32>| {
-        for y in 0..HEIGHT {
-            for x in 0..WIDTH {
-                if trace_ray_intersections(x as f32, y as f32) {
-                    buffer[y * WIDTH + x] = display::from_u8_rgb(255u8, 255u8, 255u8);
-                } else {
-                    buffer[y * WIDTH + x] = display::from_u8_rgb(0u8, 0u8, 0u8);
-                }
-            }
-        }
-    };
     run_window(update_window_buffer, WIDTH, HEIGHT);
 }
 
@@ -293,258 +274,18 @@ fn measure_view_invariance(
     }
 }
 
-fn get_random_screen_coords(num_rays: usize) -> Vec<[usize; 2]> {
-    // generating random tensors is faster
-    let coord_y: Vec<i64> = Vec::try_from(Tensor::randint(
-        HEIGHT as i64,
-        &[num_rays as i64],
-        kind::FLOAT_CPU,
-    ))
-    .unwrap();
-
-    let coord_x: Vec<i64> = Vec::try_from(Tensor::randint(
-        WIDTH as i64,
-        &[num_rays as i64],
-        kind::FLOAT_CPU,
-    ))
-    .unwrap();
-
-    let indices: Vec<[usize; 2]> = coord_y
-        .iter()
-        .zip(coord_x.iter())
-        .map(|(y, x)| [*y as usize, *x as usize])
-        .collect();
-
-    return indices;
-}
-
-fn get_sphere_density_batch(
-    imgs: &Vec<Vec<[f32; 4]>>,
-    iter: usize,
-) -> (
-    Vec<[usize; 2]>,
-    Vec<Vec<[f32; INDIM as usize]>>,
-    Vec<Vec<[f32; 1]>>,
-) {
-    let n = iter % imgs.len(); // if we're shuffling views - angles should change accordingly
-    let angle = (n as f32 / imgs.len() as f32) * 2. * std::f32::consts::PI;
-    let indices = get_random_screen_coords(NUM_RAYS);
-    let (query_points, _) =
-        sample_and_rotate_ray_points_for_screen_coords(&indices, NUM_POINTS, angle, true); // need mix rays from multiple views
-    let mut gold: Vec<Vec<[f32; 1]>> = Vec::new();
-
-    for (ray_points) in &query_points {
-        let mut ray_gold: Vec<[f32; 1]> = Vec::new();
-        for [x, y, z] in ray_points {
-            let distance_from_center = (x * x + y * y + z * z).sqrt();
-            let true_density = if distance_from_center < 0.5 { 1.0 } else { 0.0 };
-            ray_gold.push([true_density]);
+#[test]
+fn display_ray_intersections() {
+    let update_window_buffer = |buffer: &mut Vec<u32>| {
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                if trace_ray_intersections(x as f32, y as f32) {
+                    buffer[y * WIDTH + x] = display::from_u8_rgb(255u8, 255u8, 255u8);
+                } else {
+                    buffer[y * WIDTH + x] = display::from_u8_rgb(0u8, 0u8, 0u8);
+                }
+            }
         }
-        gold.push(ray_gold);
-    }
-
-    return (indices, query_points, gold);
+    };
+    run_window(update_window_buffer, WIDTH, HEIGHT);
 }
-
-fn get_multiview_batch(
-    imgs: &Vec<Vec<[f32; 4]>>,
-) -> (
-    Vec<[usize; 2]>,
-    Vec<Vec<[f32; INDIM as usize]>>,
-    Vec<[f32; NUM_POINTS]>,
-    Vec<[f32; 4]>,
-) {
-    let indices = get_random_screen_coords(NUM_RAYS);
-    let bsz = NUM_RAYS / imgs.len();
-
-    let mut query_points: Vec<Vec<[f32; INDIM as usize]>> = Vec::new();
-    let mut distances: Vec<[f32; NUM_POINTS]> = Vec::new();
-    let mut gold: Vec<[f32; 4]> = Vec::new();
-
-    let image_indices: Vec<i64> = Vec::try_from(Tensor::randint(
-        imgs.len() as i64,
-        &[imgs.len() as i64],
-        kind::FLOAT_CPU,
-    ))
-    .unwrap();
-
-    for (i, n) in image_indices.iter().enumerate() {
-        // println!("view {:?} of {:?}", n, image_indices.len());
-        let angle = (*n as f32 / imgs.len() as f32) * 2. * std::f32::consts::PI; // all views encompass 360 degrees
-        let indices_batch: Vec<[usize; 2]> = indices[i as usize * bsz..(i as usize + 1) * bsz]
-            .try_into()
-            .unwrap();
-
-        let (query_points_batch, distances_batch) =
-            sample_and_rotate_ray_points_for_screen_coords(&indices_batch, NUM_POINTS, angle, true);
-
-        let gold_batch: Vec<[f32; 4]> = indices_batch
-            .iter()
-            .map(|[y, x]| imgs[*n as usize][y * WIDTH + x])
-            .collect();
-        //
-        // let (_, query_points_batch, distances_batch, gold_batch) =
-        //     get_sphere_train_batch(indices_batch, angle);
-
-        query_points.extend(query_points_batch);
-        distances.extend(distances_batch);
-        gold.extend(gold_batch);
-    }
-
-    return (indices, query_points, distances, gold);
-}
-
-fn get_sphere_train_batch(
-    indices: Vec<[usize; 2]>,
-    angle: f32,
-) -> (
-    Vec<[usize; 2]>,
-    Vec<Vec<[f32; INDIM as usize]>>,
-    Vec<[f32; NUM_POINTS]>,
-    Vec<[f32; 4]>,
-) {
-    // let indices = get_random_screen_coords(NUM_RAYS);
-    let mut gold: Vec<[f32; 4]> = Vec::new();
-    for [y, x] in indices.clone() {
-        let y_ = y as f32 / HEIGHT as f32;
-        let x_ = x as f32 / WIDTH as f32;
-
-        let distance_from_center = ((x_ - 0.5) * (x_ - 0.5) + (y_ - 0.5) * (y_ - 0.5)).sqrt();
-        let distance_from_center_left =
-            ((x_ - 0.25) * (x_ - 0.25) + (y_ - 0.5) * (y_ - 0.5)).sqrt();
-        let distance_from_center_right =
-            ((x_ - 0.75) * (x_ - 0.75) + (y_ - 0.5) * (y_ - 0.5)).sqrt();
-
-        // if angle == 0. {
-        //     gold.push([1., 0., 0., 1.]);
-        // } else if f32::abs(angle - f32::consts::FRAC_PI_2) < TOL {
-        //     gold.push([0., 1., 0., 1.]);
-        // } else if (f32::abs(angle - 3. * f32::consts::FRAC_PI_2) < TOL) {
-        //     gold.push([0., 0., 1., 1.]);
-        // } else {
-        //     gold.push([1., 1., 1., 1.]);
-        // }
-        // continue;
-
-        if distance_from_center < 0.25
-            || (f32::abs(angle - f32::consts::FRAC_PI_2) < TOL
-                || f32::abs(angle - 3. * f32::consts::FRAC_PI_2) < TOL)
-                && (distance_from_center_left < 0.125 || distance_from_center_right < 0.125)
-        {
-            gold.push([1., 1., 1., 1.]);
-        } else {
-            gold.push([0., 0., 0., 0.]);
-        }
-    }
-
-    let (query_points, distances) =
-        sample_and_rotate_ray_points_for_screen_coords(&indices, NUM_POINTS, angle, true);
-
-    return (indices, query_points, distances, gold);
-}
-
-// gets query points for random screen coords and views for training
-fn get_train_batch(
-    imgs: &Vec<Vec<[f32; 4]>>,
-    iter: usize,
-) -> (
-    Vec<[usize; 2]>,
-    Vec<Vec<[f32; INDIM as usize]>>,
-    Vec<[f32; NUM_POINTS]>,
-    Vec<[f32; 4]>,
-) {
-    // let mut rng = thread_rng(); // Get a thread-local random number generator
-    // imgs.shuffle(&mut rng);
-    //
-    let n = iter % imgs.len(); // if we're shuffling views - angles should change accordingly
-    let angle = (n as f32 / imgs.len() as f32) * 2. * std::f32::consts::PI;
-
-    let indices = get_random_screen_coords(NUM_RAYS);
-    //        let screen_coords: Vec<[f32; model_tch::INDIM]> = indices
-    //            .iter()
-    //            .map(input_transforms::scale_by_screen_size_and_fourier::<3>)
-    //            .collect();
-
-    let (query_points, distances) =
-        sample_and_rotate_ray_points_for_screen_coords(&indices, NUM_POINTS, angle, true); // need mix rays from multiple views
-
-    let gold: Vec<[f32; 4]> = indices
-        .iter()
-        .map(|[y, x]| imgs[n][y * WIDTH + x])
-        .collect();
-
-    (indices, query_points, distances, gold)
-}
-
-// queries model for batches of all screen coordinates and draws to backbuffer
-fn draw_valid_predictions(backbuffer: &mut [u32; WIDTH * HEIGHT], iter: usize, model: &NeRF) {
-    let mut indices: Vec<[usize; 2]> = Vec::new();
-
-    for y in 0..HEIGHT {
-        for x in 0..WIDTH {
-            indices.push([y as usize, x as usize])
-        }
-    }
-
-    let mut angle = (iter as f32 / 180.) * std::f32::consts::PI;
-    angle %= 2. * std::f32::consts::PI;
-
-    for batch_index in (0..indices.len() / NUM_RAYS) {
-        println!(
-            "evaluating batch {:?} iter {:?} angle {:?} - {:?} out of {:?}",
-            batch_index * NUM_RAYS,
-            iter,
-            angle,
-            (batch_index + 1) * NUM_RAYS,
-            indices.len()
-        );
-        let indices_batch: Vec<[usize; 2]> = indices
-            [batch_index * NUM_RAYS..(batch_index + 1) * NUM_RAYS]
-            .try_into()
-            .unwrap();
-
-        let (query_points, distances) =
-            sample_and_rotate_ray_points_for_screen_coords(&indices_batch, NUM_POINTS, angle, true);
-
-        let (predictions, _) = model.predict(
-            tensor_from_3d(&query_points),
-            tensor_from_2d::<NUM_POINTS>(&distances),
-        );
-        draw_predictions(backbuffer, &indices_batch, predictions);
-    }
-}
-
-fn draw_predictions(
-    backbuffer: &mut [u32; WIDTH * HEIGHT],
-    indices: &Vec<[usize; 2]>,
-    predictions: Tensor,
-) {
-    // write batch predictions to backbuffer to display until next eval
-    for ([y, x], prediction) in indices
-        .iter()
-        .zip(tensor_to_array_vec(&predictions).into_iter())
-        .into_iter()
-    {
-        backbuffer[y * WIDTH + x] =
-            prediction_array_as_u32(&[prediction[0], prediction[1], prediction[2], 1.]);
-    }
-}
-
-// // draws training predictions to backbuffer and logs
-// fn draw_train_predictions(
-//     backbuffer: &mut [u32; WIDTH * HEIGHT],
-//     indices: Vec<[usize; 2]>,
-//     predictions: Tensor,
-//     iter: usize,
-//     writer: &mut SummaryWriter,
-// ) {
-//     // write batch predictions to backbuffer to display until next eval
-//     for ([y, x], prediction) in indices
-//         .iter()
-//         .zip(get_predictions_as_array_vec(&predictions).into_iter())
-//         .into_iter()
-//     {
-//         backbuffer[y * WIDTH + x] =
-//             prediction_array_as_u32(&[prediction[0], prediction[1], prediction[2], 1.]);
-//     }
-// }

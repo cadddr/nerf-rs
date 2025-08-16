@@ -189,20 +189,19 @@ impl NeRF {
         return (
             compositing(
                 &densities,
-                // Tensor::stack(
-                //     &[
-                //         &densities,
-                //         &densities,
-                //         &densities,
-                //         &Tensor::ones(
-                //             &[NUM_RAYS as i64, NUM_POINTS as i64],
-                //             (Kind::Float, densities.device()),
-                //         ),
-                //     ],
-                //     0,
-                // )
-                // .permute(&[1, 2, 0]),
-                colors,
+                Tensor::stack(
+                    &[
+                        &densities,
+                        &densities,
+                        &densities,
+                        &Tensor::ones(
+                            &[NUM_RAYS as i64, NUM_POINTS as i64],
+                            (Kind::Float, densities.device()),
+                        ),
+                    ],
+                    0,
+                )
+                .permute(&[1, 2, 0]),
                 distances.to(Device::Mps),
             ),
             densities,
