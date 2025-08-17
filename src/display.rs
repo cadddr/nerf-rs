@@ -4,7 +4,7 @@ use tch::Tensor;
 
 use crate::{
     model::{tensor_from_2d, tensor_from_3d, tensor_to_2d, NeRF, NUM_POINTS, NUM_RAYS},
-    ray_sampling::{sample_and_rotate_ray_points_for_screen_coords, HEIGHT, WIDTH},
+    ray_sampling::*,
 };
 
 pub fn run_window<F: FnMut(&mut Vec<u32>)>(
@@ -52,42 +52,46 @@ pub fn prediction_array_as_u32(rgba: &[f32; 4]) -> u32 {
 }
 
 // queries model for batches of all screen coordinates and draws to backbuffer
-pub fn draw_valid_predictions(backbuffer: &mut [u32; WIDTH * HEIGHT], iter: usize, model: &NeRF) {
-    let mut indices: Vec<[usize; 2]> = Vec::new();
+// pub fn draw_valid_predictions(backbuffer: &mut [u32; WIDTH * HEIGHT], iter: usize, model: &NeRF) {
+//     let mut indices: Vec<[usize; 2]> = Vec::new();
 
-    for y in 0..HEIGHT {
-        for x in 0..WIDTH {
-            indices.push([y as usize, x as usize])
-        }
-    }
+//     for y in 0..HEIGHT {
+//         for x in 0..WIDTH {
+//             indices.push([y as usize, x as usize])
+//         }
+//     }
 
-    let mut angle = (iter as f32 / 180.) * std::f32::consts::PI;
-    angle %= 2. * std::f32::consts::PI;
+//     let mut angle = (iter as f32 / 180.) * std::f32::consts::PI;
+//     angle %= 2. * std::f32::consts::PI;
 
-    for batch_index in (0..indices.len() / NUM_RAYS) {
-        println!(
-            "evaluating batch {:?} iter {:?} angle {:?} - {:?} out of {:?}",
-            batch_index * NUM_RAYS,
-            iter,
-            angle,
-            (batch_index + 1) * NUM_RAYS,
-            indices.len()
-        );
-        let indices_batch: Vec<[usize; 2]> = indices
-            [batch_index * NUM_RAYS..(batch_index + 1) * NUM_RAYS]
-            .try_into()
-            .unwrap();
+//     for batch_index in (0..indices.len() / NUM_RAYS) {
+//         println!(
+//             "evaluating batch {:?} iter {:?} angle {:?} - {:?} out of {:?}",
+//             batch_index * NUM_RAYS,
+//             iter,
+//             angle,
+//             (batch_index + 1) * NUM_RAYS,
+//             indices.len()
+//         );
+//         let indices_batch: Vec<[usize; 2]> = indices
+//             [batch_index * NUM_RAYS..(batch_index + 1) * NUM_RAYS]
+//             .try_into()
+//             .unwrap();
 
-        let (query_points, distances) =
-            sample_and_rotate_ray_points_for_screen_coords(&indices_batch, NUM_POINTS, angle, true);
+//         let (query_points, distances) = sample_points_for_screen_coords_and_view_angles(
+//             &indices_batch,
+//             NUM_POINTS,
+//             angle,
+//             true,
+//         );
 
-        let (predictions, _) = model.predict(
-            tensor_from_3d(&query_points),
-            tensor_from_2d::<NUM_POINTS>(&distances),
-        );
-        draw_predictions(backbuffer, &indices_batch, predictions);
-    }
-}
+//         let (predictions, _) = model.predict(
+//             tensor_from_3d(&query_points),
+//             tensor_from_2d::<NUM_POINTS>(&distances),
+//         );
+//         draw_predictions(backbuffer, &indices_batch, predictions);
+//     }
+// }
 
 pub fn draw_predictions(
     backbuffer: &mut [u32; WIDTH * HEIGHT],

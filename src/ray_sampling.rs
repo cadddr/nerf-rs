@@ -12,7 +12,7 @@ const FOV: f32 = std::f32::consts::PI / 3.;
 pub const T_FAR: f32 = 2.;
 
 pub const UP: [f32; 3] = [0., 1., 0.];
-pub const AT: [f32; 3] = [0., 0., 0.];
+pub const AT: [f32; 3] = [0., 0., 1.];
 pub const FROM: [f32; 3] = [0., 0., -1.];
 
 pub const TOL: f32 = 1e-4;
@@ -96,7 +96,8 @@ pub fn screen_to_world(x: f32, y: f32, width: f32, height: f32) -> [f32; 3] {
 fn sample_points_along_ray_and_rotate(
     from: [f32; 3],
     to: [f32; 3],
-    view_angle: f32,
+    yawAngle: f32,
+    pitchAngle: f32,
     num_samples: usize,
     randomize: bool,
 ) -> (Vec<[f32; 3]>, [f32; NUM_POINTS]) {
@@ -126,7 +127,8 @@ fn sample_points_along_ray_and_rotate(
     // unzip back after sorting by t
     points = points_locations
         .iter()
-        .map(|([x, y, z], _)| rotateYaw([*x, *y, *z], view_angle)) // and rotate for view angle
+        .map(|([x, y, z], _)| rotateYaw([*x, *y, *z], yawAngle)) // and rotate for view angle
+        .map(|vec| rotatePitch(vec, pitchAngle))
         .collect::<Vec<[f32; 3]>>();
 
     locations = points_locations
@@ -154,7 +156,8 @@ pub fn sample_and_rotate_rays_for_screen_coords(
 pub fn sample_and_rotate_ray_points_for_screen_coords(
     indices: &Vec<[usize; 2]>,
     num_points: usize,
-    angle: f32,
+    yawAngle: f32,
+    pitchAngle: f32,
     randomize: bool,
 ) -> (Vec<Vec<[f32; 3]>>, Vec<[f32; NUM_POINTS]>) {
     let rays: Vec<[f32; 3]> = indices
@@ -164,7 +167,11 @@ pub fn sample_and_rotate_ray_points_for_screen_coords(
 
     let (points, locations) = rays
         .iter()
-        .map(|to| sample_points_along_ray_and_rotate(FROM, *to, angle, num_points, randomize))
+        .map(|to| {
+            sample_points_along_ray_and_rotate(
+                FROM, *to, yawAngle, pitchAngle, num_points, randomize,
+            )
+        })
         .collect();
 
     return (points, locations);
