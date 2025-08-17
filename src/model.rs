@@ -308,13 +308,7 @@ impl Trainer {
         Trainer { opt }
     }
 
-    pub fn step(
-        &mut self,
-        predictions: &Tensor,
-        mut gold: Tensor,
-        iter: &usize,
-        accumulation_steps: usize,
-    ) -> f32 {
+    pub fn step(&mut self, predictions: &Tensor, mut gold: Tensor, iter: &usize) -> f32 {
         // const LABELS_BATCHED: usize = LABELS * NUM_RAYS;
         // let gold_flat = array_vec_to_1d_array::<LABELS, LABELS_BATCHED>(&gold);
         // let gold_tensor = Tensor::of_slice(&gold_flat).view((NUM_RAYS as i64, LABELS as i64));
@@ -325,9 +319,8 @@ impl Trainer {
         let loss = mse_loss(&predictions, &gold);
 
         // self.backward_scale_grad_step(&loss);
-        // self.opt.backward_step(&loss);
-        self.grad_accumulation_step(&loss, iter, accumulation_steps);
-
+        self.opt.backward_step(&loss);
+        // self.grad_accumulation_step(&loss, iter, accumulation_steps);
         return f32::try_from(&loss).unwrap();
     }
 
@@ -397,7 +390,7 @@ pub fn tensor_from_2d<const INNER_DIM: usize>(distances: &Vec<[f32; INNER_DIM]>)
     )
 }
 
-pub fn tensor_to_array_vec(a: &Tensor) -> Vec<Vec<f32>> {
+pub fn tensor_to_2d(a: &Tensor) -> Vec<Vec<f32>> {
     return Vec::<Vec<f32>>::try_from(a.to_kind(Kind::Float).to_device(Device::Cpu)).unwrap();
 }
 

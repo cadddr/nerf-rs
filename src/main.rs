@@ -2,6 +2,7 @@ mod cli;
 use clap::Parser;
 use cli::Cli;
 mod image_loading;
+use image_loading::*;
 mod ray_sampling;
 use ray_sampling::*;
 mod dataset;
@@ -9,8 +10,8 @@ use dataset::*;
 mod input_transforms;
 mod model;
 use model::{
-    tensor_from_2d, tensor_from_3d, tensor_to_array_vec, NeRF, BATCH_SIZE, INDIM, LABELS,
-    NUM_POINTS, NUM_RAYS,
+    tensor_from_2d, tensor_from_3d, tensor_to_2d, NeRF, BATCH_SIZE, INDIM, LABELS, NUM_POINTS,
+    NUM_RAYS,
 };
 mod display;
 use display::*;
@@ -36,67 +37,38 @@ fn main() {
     let mut writer = SummaryWriter::new(&format!("{}/{}", &args.log_dir, ts));
     log_params(&mut writer, &cli::get_scalars_as_map());
 
-    let img_paths = image_loading::get_image_paths(
-        args.img_dir,
-        args.view_start_h,
-        args.view_end_h,
-        args.view_step_h,
-    );
-    let imgs = image_loading::load_multiple_images_as_arrays(img_paths);
+    let img_paths = get_image_paths(args.img_dir, args.view_start, args.view_end, args.view_step);
+    let imgs = image_loading::load_multiple_images_as_arrays(img_paths.clone());
+    let view_angles = image_loading::get_view_angles(args.num_views_per_hemisphere);
 
-    let mut model = model::NeRF::new();
-    // let vs = nn::VarStore::new(Device::Mps);
-    // let mut model = model::DensityNet::new(&vs.root());
-    let mut trainer = model::Trainer::new(&model.vs, args.learning_rate);
-    // let mut trainer = model::Trainer::new(&vs, args.learning_rate);
+    let mut model = model::NeRF::new(); // let vs = nn::VarStore::new(Device::Mps);// let mut model = model::DensityNet::new(&vs.root());
+    let mut trainer = model::Trainer::new(&model.vs, args.learning_rate); // let mut trainer = model::Trainer::new(&vs, args.learning_rate);
     log_params(&mut writer, &model::hparams());
 
     if args.load_path != "" {
         model.load(&format!("{}/{}", args.save_dir, &args.load_path));
     }
-
     // training step takes place inside a window update callback
     // it used to be such that window was updated with each batch predictions but it takes way too long to draw on each iter
     let mut iter = 0;
     let mut batch_losses: Vec<f32> = Vec::new();
     let mut backbuffer = [0; WIDTH * HEIGHT];
     let update_window_buffer = |buffer: &mut Vec<u32>| {
-        // let n = iter % imgs.len(); // if we're shuffling views - angles should change accordingly
-        // let angle = (n as f32 / imgs.len() as f32) * 2. * std::f32::consts::PI;
-        let (indices, query_points, distances, gold) = get_multiview_batch(&imgs); //get_train_batch(&imgs, iter); // // // //get_sphere_train_batch(angle);
-                                                                                   // let (indices, query_points, gold) = get_density_batch(&imgs, iter);
-        let (predictions, densities) = model.predict(
+        let (indices, query_points, distances, gold) = get_multiview_batch(&imgs); //get_train_batch(&imgs, iter); // // // //get_sphere_train_batch(angle);// let (indices, query_points, gold) = get_density_batch(&imgs, iter);
+        let (colors, densities) = model.predict(
             tensor_from_3d(&query_points),
             tensor_from_2d::<NUM_POINTS>(&distances),
-        );
-        // let densities =
-        //     model.predict::<BATCH_SIZE, NUM_RAYS, NUM_POINTS>(tensor_from_3d(&query_points));
+        ); // let densities = model.predict::<BATCH_SIZE, NUM_RAYS, NUM_POINTS>(tensor_from_3d(&query_points));
 
         if iter % args.logging_steps == 0 {
             log_screen_coords(&mut writer, &indices, iter);
             log_query_points(&mut writer, &query_points, iter);
             log_query_distances(&mut writer, &distances, iter);
-            log_density_maps(
-                &mut writer,
-                &query_points,
-                tensor_to_array_vec(&densities),
-                iter,
-            );
+            log_density_maps(&mut writer, &query_points, tensor_to_2d(&densities), iter);
         }
 
         if args.do_train {
-            let loss: f32 = trainer.step(
-                &predictions,
-                tensor_from_2d::<{ LABELS as usize }>(&gold),
-                &iter,
-                args.accumulation_steps,
-            );
-            // let loss: f32 = trainer.step(
-            //     &densities,
-            //     tensor_from_3d::<{ LABELS as usize }>(&gold),
-            //     &iter,
-            //     args.accumulation_steps,
-            // );
+            let loss = trainer.step(&colors, tensor_from_2d::<{ LABELS as usize }>(&gold), &iter); // let loss = trainer.step(&densities, tensor_from_3d::<{ LABELS as usize }>(&gold), &iter);
             println!("iter={}, loss={:.16}", iter, loss);
             writer.add_scalar("loss", loss, iter);
 
@@ -112,7 +84,7 @@ fn main() {
         if iter % args.eval_steps == 0 {
             backbuffer = [0; WIDTH * HEIGHT];
             if args.eval_on_train {
-                draw_predictions(&mut backbuffer, &indices, predictions);
+                draw_predictions(&mut backbuffer, &indices, colors);
                 log_prediction(&mut writer, &mut backbuffer, iter);
             } else {
                 draw_valid_predictions(&mut backbuffer, iter, &model);
@@ -220,7 +192,7 @@ fn measure_view_invariance(
 
         let query_points_densities_intersected1: Vec<([f32; 3], f32)> = query_points1
             .iter()
-            .zip(tensor_to_array_vec(&densities1))
+            .zip(tensor_to_2d(&densities1))
             .zip(rays1_intersections)
             .map(|((points, densities), intersections)| {
                 points
@@ -234,7 +206,7 @@ fn measure_view_invariance(
 
         let query_points_densities_intersected2: Vec<([f32; 3], f32)> = query_points2
             .iter()
-            .zip(tensor_to_array_vec(&densities2))
+            .zip(tensor_to_2d(&densities2))
             .zip(rays2_intersections)
             .map(|((points, densities), intersections)| {
                 points

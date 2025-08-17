@@ -16,17 +16,20 @@ pub struct Cli {
     #[arg(long, default_value_t = false)]
     pub log_densities_only: bool,
 
-    #[arg(long, default_value = "spheres-128-no-shading")]
+    #[arg(long, default_value = "data/monkey-128-no-shading-2d-6")]
     pub img_dir: String,
 
     #[arg(long, default_value_t = 0)]
-    pub view_start_h: usize,
+    pub view_start: usize,
 
-    #[arg(long, default_value_t = 180)]
-    pub view_end_h: usize,
+    #[arg(long, default_value_t = 84)]
+    pub view_end: usize,
 
-    #[arg(long, default_value_t = 45)]
-    pub view_step_h: usize,
+    #[arg(long, default_value_t = 1)]
+    pub view_step: usize,
+
+    #[arg(long, default_value_t = 6)]
+    pub num_views_per_hemisphere: usize,
 
     #[arg(long, default_value = "logs")]
     pub log_dir: String,
@@ -57,9 +60,6 @@ pub struct Cli {
 
     #[arg(long, default_value_t = 1001)]
     pub save_steps: usize,
-
-    #[arg(long, default_value_t = 1)]
-    pub accumulation_steps: usize,
 
     #[arg(long, default_value_t = 5e-4)]
     pub learning_rate: f64,

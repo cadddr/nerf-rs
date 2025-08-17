@@ -1,34 +1,79 @@
-use std::collections::HashMap;
+use std::f32;
 
 use crate::model::{NUM_POINTS, NUM_RAYS};
 use rand::random;
 use vecmath::*;
-const HITHER: f32 = 0.05;
-const FOV: f32 = std::f32::consts::PI / 3.;
-
-pub const UP: [f32; 3] = [0., 1., 0.];
-pub const FROM: [f32; 3] = [0., 0., -1.];
-pub const AT: [f32; 3] = [0., 0., 1.];
-
-pub const T_FAR: f32 = 2.;
 
 pub const WIDTH: usize = 128;
 pub const HEIGHT: usize = 128;
 
+const HITHER: f32 = 0.05;
+const FOV: f32 = std::f32::consts::PI / 3.;
+pub const T_FAR: f32 = 2.;
+
+pub const UP: [f32; 3] = [0., 1., 0.];
+pub const AT: [f32; 3] = [0., 0., 0.];
+pub const FROM: [f32; 3] = [0., 0., -1.];
+
 pub const TOL: f32 = 1e-4;
 
-pub fn rotate(vec: [f32; 3], angle: f32) -> [f32; 3] {
+pub fn rotateYaw(vec: [f32; 3], angle: f32) -> [f32; 3] {
     let c = f32::cos(angle);
     let s = f32::sin(angle);
-    let rot = [
-        [c, 0., s, 0.],
-        [0., 1., 0., 0.],
-        [-s, 0., c, 0.],
-        //        [0., 0.,  0., 1.]
-    ];
+    let rot = [[c, 0., s, 0.], [0., 1., 0., 0.], [-s, 0., c, 0.]];
 
-    row_mat3x4_transform_pos3(rot, vec)
-    //    from = multvec3(rot, from.sub(at)).add(at);
+    return row_mat3x4_transform_pos3(rot, vec);
+}
+
+// fn rotateViewHor(view_rot: f32) {
+// from = multvec3(Matrix4.rotationY(view_rot), from.sub(at)).add(at);
+// }
+
+pub fn rotatePitch(vec: [f32; 3], angle: f32) -> [f32; 3] {
+    // 		var v = at.sub(from).normalized();
+    let v = vec3_normalized(vec3_sub(AT, FROM));
+    // 		var u = v.cross(up).normalized();
+    let u = vec3_normalized(vec3_cross(v, UP));
+    let [ux, uy, uz] = u;
+    // 		var cross_mat = new Matrix4(
+    // 0., -u.z, u.y, 0,
+    // u.z, 0., -u.x, 0,
+    // -u.y, u.x, 0., 0,
+    // 0, 0, 0, 1);
+    let cross_mat = [[0., -uz, uy], [uz, 0., -ux], [-uy, ux, 0.]];
+    // 		var outer_mat = new Matrix4(
+    // u.x * u.x, u.x * u.y, u.x * u.z, 0,
+    // u.y * u.x, u.y * u.y, u.y * u.z, 0,
+    // u.z * u.x, u.z * u.y, u.z * u.z, 0,
+    // 0, 0, 0, 1);
+    let outer_mat = [
+        [ux * ux, ux * uy, ux * uz],
+        [uy * ux, uy * uy, uy * uz],
+        [uz * ux, uz * uy, uz * uz],
+    ];
+    // 		var s = Math.sin(view_rot);
+    // 		var c = Math.cos(view_rot);
+    let c = f32::cos(angle);
+    let s = f32::sin(angle);
+
+    let id_mult_c = [[c, 0., 0.], [0., c, 0.], [0., 0., c]];
+    let id_mult_s = [[s, 0., 0.], [0., s, 0.], [0., 0., s]];
+    // 		var rot = Matrix4.identity().mult(c).add(cross_mat.mult(s)).add(outer_mat.mult(1. - c));
+    let rot = mat3_add(
+        mat3_add(id_mult_c, row_mat3_mul(cross_mat, id_mult_s)),
+        row_mat3_mul(outer_mat, mat3_sub(mat3_id(), id_mult_c)),
+    );
+    // 		from = multvec3(rot, from.sub(at)).add(at);
+    // 		up = multvec3(rot, up).normalized();
+    return col_mat3_transform(rot, vec);
+}
+#[test]
+fn testRotatePitch() {
+    let a = [0., 0., 1.];
+    assert_eq!(
+        rotatePitch(rotatePitch(a, f32::consts::PI / 2.), -f32::consts::PI / 2.),
+        a
+    );
 }
 
 pub fn screen_to_world(x: f32, y: f32, width: f32, height: f32) -> [f32; 3] {
@@ -47,6 +92,7 @@ pub fn screen_to_world(x: f32, y: f32, width: f32, height: f32) -> [f32; 3] {
     return to;
 }
 
+// TODO: rotate view origin instead of points
 fn sample_points_along_ray_and_rotate(
     from: [f32; 3],
     to: [f32; 3],
@@ -80,7 +126,7 @@ fn sample_points_along_ray_and_rotate(
     // unzip back after sorting by t
     points = points_locations
         .iter()
-        .map(|([x, y, z], _)| rotate([*x, *y, *z], view_angle)) // and rotate for view angle
+        .map(|([x, y, z], _)| rotateYaw([*x, *y, *z], view_angle)) // and rotate for view angle
         .collect::<Vec<[f32; 3]>>();
 
     locations = points_locations
@@ -92,7 +138,7 @@ fn sample_points_along_ray_and_rotate(
 
     return (points, locations.try_into().unwrap());
 }
-
+//TODO: rotate view origin instead of points
 pub fn sample_and_rotate_rays_for_screen_coords(
     indices: &Vec<[usize; 2]>,
     angle: f32,
@@ -100,7 +146,7 @@ pub fn sample_and_rotate_rays_for_screen_coords(
     let rays: Vec<[f32; 3]> = indices
         .iter()
         .map(|[y, x]| screen_to_world(*x as f32, *y as f32, WIDTH as f32, HEIGHT as f32))
-        .map(|vec| rotate(vec, angle))
+        .map(|vec| rotateYaw(vec, angle))
         .collect();
     return rays;
 }
@@ -268,7 +314,7 @@ pub fn get_view_rays_intersections(
         let mut ray1_intersections: Vec<[f32; 3]> = Vec::new();
         for j in 0..rays2.len() {
             let ray2 = *rays2.get(j).unwrap();
-            let from_rot = rotate(FROM, angle);
+            let from_rot = rotateYaw(FROM, angle);
 
             let (t, p, a, b) = ray_intersection(
                 FROM,
@@ -333,7 +379,7 @@ fn points_sampled_lie_on_ray() {
     println!("coords {} {}", x, y);
     let to = screen_to_world(x as f32, y as f32, WIDTH as f32, HEIGHT as f32);
     println!("to {:?}", to);
-    let (points, _) = sample_points_along_ray_and_rotate(FROM, to, 0., NUM_POINTS);
+    let (points, _) = sample_points_along_ray_and_rotate(FROM, to, 0., NUM_POINTS, true);
 
     points.iter().for_each(|it| {
         println!("point {{ {:.2}, {:.2}, {:.2} }}", it[0], it[1], it[2]);
@@ -365,7 +411,7 @@ fn points_sampled_ordered_by_t() {
     println!("coords {} {}", x, y);
     let to = screen_to_world(x as f32, y as f32, WIDTH as f32, HEIGHT as f32);
     println!("to {:?}", to);
-    let (points, locations) = sample_points_along_ray_and_rotate(FROM, to, 0., NUM_POINTS);
+    let (points, locations) = sample_points_along_ray_and_rotate(FROM, to, 0., NUM_POINTS, true);
 
     points.iter().for_each(|it| {
         println!("point {{ {:.2}, {:.2}, {:.2} }}", it[0], it[1], it[2]);
@@ -391,6 +437,6 @@ fn points_sampled_ordered_by_t() {
 fn point_rotates_to_90() {
     let angle = std::f32::consts::PI / 2.;
     let vec = [1., 2., 3.];
-    println!("{:?}", rotate(vec, angle));
-    assert!(rotate(vec, angle) == [3.0, 2.0, -1.0000001])
+    println!("{:?}", rotateYaw(vec, angle));
+    assert!(rotateYaw(vec, angle) == [3.0, 2.0, -1.0000001])
 }

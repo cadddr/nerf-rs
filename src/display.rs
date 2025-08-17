@@ -3,7 +3,7 @@ use minifb::{Key, Window, WindowOptions};
 use tch::Tensor;
 
 use crate::{
-    model::{tensor_from_2d, tensor_from_3d, tensor_to_array_vec, NeRF, NUM_POINTS, NUM_RAYS},
+    model::{tensor_from_2d, tensor_from_3d, tensor_to_2d, NeRF, NUM_POINTS, NUM_RAYS},
     ray_sampling::{sample_and_rotate_ray_points_for_screen_coords, HEIGHT, WIDTH},
 };
 
@@ -97,7 +97,7 @@ pub fn draw_predictions(
     // write batch predictions to backbuffer to display until next eval
     for ([y, x], prediction) in indices
         .iter()
-        .zip(tensor_to_array_vec(&predictions).into_iter())
+        .zip(tensor_to_2d(&predictions).into_iter())
         .into_iter()
     {
         backbuffer[y * WIDTH + x] =
